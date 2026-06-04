@@ -1,0 +1,94 @@
+name: build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -C target-feature=+crt-static
+
+jobs:
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.3
+
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+        working-directory: frontend
+
+      - run: npm run build
+        working-directory: frontend
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: terminald-web-assets
+          path: crates/terminald-server/assets
+          if-no-files-found: error
+
+  musl:
+    name: linux ${{ matrix.arch }} musl
+    runs-on: ubuntu-latest
+    needs: frontend
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            target: x86_64-unknown-linux-musl
+          - arch: arm64
+            target: aarch64-unknown-linux-musl
+
+    steps:
+      - uses: actions/checkout@v6.0.3
+
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: terminald-web-assets
+          path: crates/terminald-server/assets
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2.9.1
+        with:
+          key: ${{ matrix.target }}
+
+      - uses: mlugg/setup-zig@v2.2.1
+        with:
+          version: latest
+          cache-key: ${{ matrix.target }}
+
+      - uses: taiki-e/install-action@v2.81.4
+        with:
+          tool: cargo-zigbuild
+          fallback: none
+
+      - run: cargo zigbuild --release --target ${{ matrix.target }} --bin terminald
+
+      - run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/terminald dist/terminald-linux-${{ matrix.arch }}-musl
+          file dist/terminald-linux-${{ matrix.arch }}-musl
+          ldd dist/terminald-linux-${{ matrix.arch }}-musl || true
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: terminald-linux-${{ matrix.arch }}-musl
+          path: dist/terminald-linux-${{ matrix.arch }}-musl
+          if-no-files-found: error
+          compression-level: 0
