@@ -77,10 +77,11 @@ pub async fn run(config: ClientConfig) -> Result<()> {
     let mut stdout = tokio::io::stdout();
     while let Some(message) = reader.next().await {
         match message? {
-            Message::Binary(frame) => match ServerMessage::decode(&frame)? {
-                ServerMessage::Output(output) => write_server_output(&mut stdout, &output).await?,
-                ServerMessage::Error(error) => bail!(error),
-            },
+            Message::Binary(frame) => {
+                if handle_server_frame(&mut stdout, &frame).await? {
+                    break;
+                }
+            }
             Message::Text(text) => write_server_output(&mut stdout, text.as_bytes()).await?,
             Message::Close(_) => break,
             Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {}
@@ -89,6 +90,25 @@ pub async fn run(config: ClientConfig) -> Result<()> {
 
     writer_task.abort();
     Ok(())
+}
+
+async fn handle_server_frame<W>(stdout: &mut W, frame: &[u8]) -> Result<bool>
+where
+    W: AsyncWrite + Unpin,
+{
+    match ServerMessage::decode(frame)? {
+        ServerMessage::Output(output) => write_server_output(stdout, &output).await?,
+        ServerMessage::Error(error) => bail!(error),
+        ServerMessage::Exited(code) => {
+            write_server_output(
+                stdout,
+                format!("\r\nRemote exited with code {code}\r\n").as_bytes(),
+            )
+            .await?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 async fn write_server_output<W>(stdout: &mut W, output: &[u8]) -> Result<()>
@@ -225,6 +245,19 @@ mod tests {
         write_server_output(&mut stdout, b"a").await.unwrap();
 
         assert_eq!(stdout.bytes, b"a");
+        assert_eq!(stdout.flushes, 1);
+    }
+
+    #[tokio::test]
+    async fn server_exit_frame_prints_message_and_stops_client() {
+        let mut stdout = RecordingStdout::default();
+
+        let stop = handle_server_frame(&mut stdout, &ServerMessage::Exited(-1).encode())
+            .await
+            .unwrap();
+
+        assert!(stop);
+        assert_eq!(stdout.bytes, b"\r\nRemote exited with code -1\r\n");
         assert_eq!(stdout.flushes, 1);
     }
 }

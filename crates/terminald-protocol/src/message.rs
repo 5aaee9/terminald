@@ -6,6 +6,7 @@ pub const CLIENT_RESIZE: u8 = 0;
 pub const CLIENT_INPUT: u8 = 1;
 pub const SERVER_OUTPUT: u8 = 2;
 pub const SERVER_ERROR: u8 = 3;
+pub const SERVER_EXITED: u8 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientMessage {
@@ -49,6 +50,7 @@ impl ClientMessage {
 pub enum ServerMessage {
     Output(Vec<u8>),
     Error(String),
+    Exited(i32),
 }
 
 impl ServerMessage {
@@ -60,6 +62,12 @@ impl ServerMessage {
         match kind {
             SERVER_OUTPUT => Ok(Self::Output(payload.to_vec())),
             SERVER_ERROR => Ok(Self::Error(String::from_utf8_lossy(payload).into_owned())),
+            SERVER_EXITED => {
+                let code = String::from_utf8_lossy(payload)
+                    .parse()
+                    .context("invalid exit code payload")?;
+                Ok(Self::Exited(code))
+            }
             other => bail!("unknown server frame prefix {other}"),
         }
     }
@@ -76,6 +84,13 @@ impl ServerMessage {
                 let mut frame = Vec::with_capacity(message.len() + 1);
                 frame.push(SERVER_ERROR);
                 frame.extend(message.as_bytes());
+                frame
+            }
+            Self::Exited(code) => {
+                let payload = code.to_string();
+                let mut frame = Vec::with_capacity(payload.len() + 1);
+                frame.push(SERVER_EXITED);
+                frame.extend(payload.as_bytes());
                 frame
             }
         }
@@ -110,6 +125,11 @@ mod tests {
         assert_eq!(
             ServerMessage::Error("no".to_string()).encode(),
             vec![SERVER_ERROR, b'n', b'o']
+        );
+        assert_eq!(ServerMessage::Exited(7).encode(), vec![4, b'7']);
+        assert_eq!(
+            ServerMessage::decode(&[4, b'-', b'1']).unwrap(),
+            ServerMessage::Exited(-1)
         );
     }
 }

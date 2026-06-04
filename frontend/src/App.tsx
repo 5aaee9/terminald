@@ -34,6 +34,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     let attempt = 0;
+    let remoteExited = false;
 
     const clearReconnectTimer = () => {
       if (reconnectTimerRef.current) {
@@ -113,6 +114,9 @@ export default function App() {
         if (cancelled || currentAttempt !== attempt) {
           return;
         }
+        if (remoteExited) {
+          return;
+        }
         if (opened) {
           scheduleReconnect();
         } else if (isReconnect) {
@@ -141,9 +145,14 @@ export default function App() {
         const frame = decodeServerFrame(data);
         if (frame.type === "output") {
           terminalRef.current?.write(frame.data);
-        } else {
+        } else if (frame.type === "error") {
           setStatus("error");
           setMessage(frame.message);
+        } else {
+          remoteExited = true;
+          setStatus("closed");
+          setMessage(`Remote exited with code ${frame.code}`);
+          socket.close();
         }
       });
     }

@@ -2,13 +2,15 @@ const CLIENT_RESIZE = 0;
 const CLIENT_INPUT = 1;
 const SERVER_OUTPUT = 2;
 const SERVER_ERROR = 3;
+const SERVER_EXITED = 4;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 export type ServerFrame =
   | { type: "output"; data: Uint8Array }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "exited"; code: number };
 
 export function encodeInput(input: string | Uint8Array): Uint8Array {
   const data = typeof input === "string" ? encoder.encode(input) : input;
@@ -34,6 +36,9 @@ export function decodeServerFrame(frame: Uint8Array): ServerFrame {
   }
   if (prefix === SERVER_ERROR) {
     return { type: "error", message: decoder.decode(payload) };
+  }
+  if (prefix === SERVER_EXITED) {
+    return { type: "exited", code: Number(decoder.decode(payload)) };
   }
   throw new Error(`unknown server frame prefix ${prefix}`);
 }

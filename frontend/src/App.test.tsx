@@ -185,6 +185,23 @@ describe("App", () => {
     expect(screen.getByRole("status")).toHaveTextContent("connected");
   });
 
+  it("stops reconnecting when the remote command exits", async () => {
+    vi.useFakeTimers();
+    render(<App />);
+    await flushEffects();
+    expect(sockets).toHaveLength(1);
+    sockets[0].open();
+
+    sockets[0].message(new Uint8Array([4, 45, 49]));
+    sockets[0].closeEvent();
+    await flushEffects();
+    expect(screen.getByRole("status")).toHaveTextContent("Remote exited with code -1");
+
+    await advanceReconnectDelay();
+
+    expect(sockets).toHaveLength(1);
+  });
+
   it("sends the latest terminal size when a reconnect opens", async () => {
     vi.useFakeTimers();
     render(<App />);

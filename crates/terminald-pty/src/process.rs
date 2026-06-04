@@ -1,16 +1,17 @@
 use std::{
     fs::File,
-    io::{Read, Write},
+    io::{ErrorKind, Read, Write},
     os::{
         fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd},
         unix::process::CommandExt,
     },
-    process::{Child, Command, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
     sync::{Arc, Mutex},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
 use nix::{
+    errno::Errno,
     pty::Winsize,
     sys::signal::{Signal, kill},
     unistd::Pid,
@@ -43,13 +44,13 @@ impl Default for PtySize {
 #[derive(Debug)]
 pub struct PtyProcess {
     inner: PtyHandle,
-    child: Child,
 }
 
 #[derive(Debug, Clone)]
 pub struct PtyHandle {
     reader: Arc<Mutex<File>>,
     writer: Arc<Mutex<File>>,
+    child: Arc<Mutex<Child>>,
 }
 
 impl PtyProcess {
@@ -81,14 +82,42 @@ impl PtyProcess {
     }
 
     pub async fn terminate(&mut self) -> Result<()> {
-        let process_group = Pid::from_raw(-(self.child.id() as i32));
+        let process_group = Pid::from_raw(-(self.child_id()? as i32));
         let _ = kill(process_group, Signal::SIGTERM);
-        self.child.wait().context("wait for PTY child")?;
+        self.wait().await?;
         Ok(())
+    }
+
+    pub async fn wait(&self) -> Result<ExitStatus> {
+        self.inner.wait().await
+    }
+
+    pub fn child_id(&self) -> Result<u32> {
+        self.inner.child_id()
     }
 }
 
 impl PtyHandle {
+    pub async fn wait(&self) -> Result<ExitStatus> {
+        let child = Arc::clone(&self.child);
+        task::spawn_blocking(move || {
+            child
+                .lock()
+                .map_err(|_| anyhow!("PTY child lock poisoned"))?
+                .wait()
+                .context("wait for PTY child")
+        })
+        .await
+        .context("join PTY wait task")?
+    }
+
+    pub fn child_id(&self) -> Result<u32> {
+        self.child
+            .lock()
+            .map_err(|_| anyhow!("PTY child lock poisoned"))
+            .map(|child| child.id())
+    }
+
     pub async fn read(&self, buf: &mut [u8]) -> Result<usize> {
         let len = buf.len();
         let reader = Arc::clone(&self.reader);
@@ -97,7 +126,11 @@ impl PtyHandle {
             let mut file = reader
                 .lock()
                 .map_err(|_| anyhow!("PTY reader lock poisoned"))?;
-            let read = file.read(&mut data).context("read PTY master")?;
+            let read = match file.read(&mut data) {
+                Ok(read) => read,
+                Err(error) if is_pty_eof(&error) => 0,
+                Err(error) => return Err(error).context("read PTY master"),
+            };
             data.truncate(read);
             Ok::<_, anyhow::Error>(data)
         })
@@ -145,9 +178,19 @@ impl PtyHandle {
 
 impl Drop for PtyProcess {
     fn drop(&mut self) {
-        let _ = kill(Pid::from_raw(self.child.id() as i32), Signal::SIGTERM);
-        let _ = self.child.wait();
+        let Ok(mut child) = self.inner.child.lock() else {
+            return;
+        };
+        if child.try_wait().ok().flatten().is_some() {
+            return;
+        }
+        let _ = kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM);
+        let _ = child.wait();
     }
+}
+
+fn is_pty_eof(error: &std::io::Error) -> bool {
+    error.kind() == ErrorKind::UnexpectedEof || error.raw_os_error() == Some(Errno::EIO as i32)
 }
 
 fn spawn_blocking(argv: Vec<String>, size: PtySize) -> Result<PtyProcess> {
@@ -181,8 +224,11 @@ fn spawn_blocking(argv: Vec<String>, size: PtySize) -> Result<PtyProcess> {
         .spawn()
         .with_context(|| format!("spawn PTY command {}", argv[0]))?;
     Ok(PtyProcess {
-        child,
-        inner: PtyHandle { reader, writer },
+        inner: PtyHandle {
+            reader,
+            writer,
+            child: Arc::new(Mutex::new(child)),
+        },
     })
 }
 

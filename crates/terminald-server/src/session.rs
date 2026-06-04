@@ -37,12 +37,23 @@ async fn run_socket(socket: WebSocket, command: Vec<String>) -> anyhow::Result<(
                 }
             }
         }
+        let code = reader_process
+            .wait()
+            .await
+            .ok()
+            .and_then(|status| status.code())
+            .unwrap_or(-1);
+        let _ = tx.send(ServerMessage::Exited(code)).await;
     });
 
     loop {
         tokio::select! {
             Some(message) = rx.recv() => {
+                let exited = matches!(message, ServerMessage::Exited(_));
                 sender.send(Message::Binary(message.encode().into())).await?;
+                if exited {
+                    break;
+                }
             }
             Some(message) = receiver.next() => {
                 match message? {

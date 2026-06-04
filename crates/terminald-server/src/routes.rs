@@ -153,10 +153,15 @@ mod tests {
     }
 
     async fn spawn_server(auth: AuthConfig) -> String {
-        let mut config = ServerConfig::new(
-            0,
+        spawn_server_with_command(
+            auth,
             vec!["sh".into(), "-lc".into(), "printf ready; cat".into()],
-        );
+        )
+        .await
+    }
+
+    async fn spawn_server_with_command(auth: AuthConfig, command: Vec<String>) -> String {
+        let mut config = ServerConfig::new(0, command);
         config.auth = auth;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -180,6 +185,24 @@ mod tests {
             };
             if let ServerMessage::Output(output) = ServerMessage::decode(&frame).unwrap() {
                 return String::from_utf8_lossy(&output).into_owned();
+            }
+        }
+    }
+
+    async fn next_exit_code(
+        ws: &mut tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    ) -> i32 {
+        loop {
+            let Some(message) = ws.next().await else {
+                panic!("websocket closed before exit frame");
+            };
+            let TungsteniteMessage::Binary(frame) = message.unwrap() else {
+                continue;
+            };
+            if let ServerMessage::Exited(code) = ServerMessage::decode(&frame).unwrap() {
+                return code;
             }
         }
     }
@@ -380,5 +403,17 @@ mod tests {
         assert!(
             matches!(decoded, ServerMessage::Error(error) if error.contains("invalid resize payload"))
         );
+    }
+
+    #[tokio::test]
+    async fn websocket_sends_exit_frame_when_command_exits() {
+        let base = spawn_server_with_command(
+            AuthConfig::disabled(),
+            vec!["sh".into(), "-lc".into(), "exit 7".into()],
+        )
+        .await;
+        let (mut ws, _) = connect_async(format!("{base}/ws")).await.unwrap();
+
+        assert_eq!(next_exit_code(&mut ws).await, 7);
     }
 }

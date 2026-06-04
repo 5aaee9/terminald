@@ -19,4 +19,9 @@ describe("terminal protocol", () => {
     const frame = decodeServerFrame(new Uint8Array([2, 120]));
     expect(frame).toEqual({ type: "output", data: new Uint8Array([120]) });
   });
+
+  it("decodes exit frames", () => {
+    const frame = decodeServerFrame(new Uint8Array([4, 45, 49]));
+    expect(frame).toEqual({ type: "exited", code: -1 });
+  });
 });
