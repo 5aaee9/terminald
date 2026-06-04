@@ -5,7 +5,7 @@ use http::header;
 use terminald_protocol::{ClientMessage, ServerMessage};
 use terminald_server::Credential;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::mpsc,
 };
 use tokio_tungstenite::{
@@ -78,16 +78,25 @@ pub async fn run(config: ClientConfig) -> Result<()> {
     while let Some(message) = reader.next().await {
         match message? {
             Message::Binary(frame) => match ServerMessage::decode(&frame)? {
-                ServerMessage::Output(output) => stdout.write_all(&output).await?,
+                ServerMessage::Output(output) => write_server_output(&mut stdout, &output).await?,
                 ServerMessage::Error(error) => bail!(error),
             },
-            Message::Text(text) => stdout.write_all(text.as_bytes()).await?,
+            Message::Text(text) => write_server_output(&mut stdout, text.as_bytes()).await?,
             Message::Close(_) => break,
             Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {}
         }
     }
 
     writer_task.abort();
+    Ok(())
+}
+
+async fn write_server_output<W>(stdout: &mut W, output: &[u8]) -> Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    stdout.write_all(output).await?;
+    stdout.flush().await?;
     Ok(())
 }
 
@@ -120,7 +129,41 @@ pub fn basic_auth_header(credential: &Option<Credential>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        pin::Pin,
+        task::{Context, Poll},
+    };
     use terminald_protocol::{ClientMessage, Resize};
+    use tokio::io::AsyncWrite;
+
+    #[derive(Default)]
+    struct RecordingStdout {
+        bytes: Vec<u8>,
+        flushes: usize,
+    }
+
+    impl AsyncWrite for RecordingStdout {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            self.bytes.extend_from_slice(buf);
+            Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            self.flushes += 1;
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
 
     #[test]
     fn resolves_client_urls() {
@@ -173,5 +216,15 @@ mod tests {
                 rows: 50
             })
         );
+    }
+
+    #[tokio::test]
+    async fn server_output_flushes_immediately() {
+        let mut stdout = RecordingStdout::default();
+
+        write_server_output(&mut stdout, b"a").await.unwrap();
+
+        assert_eq!(stdout.bytes, b"a");
+        assert_eq!(stdout.flushes, 1);
     }
 }
