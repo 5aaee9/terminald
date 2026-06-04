@@ -1200,7 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "terminald-cli"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -1217,7 +1217,7 @@ dependencies = [
 
 [[package]]
 name = "terminald-protocol"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -1226,7 +1226,7 @@ dependencies = [
 
 [[package]]
 name = "terminald-pty"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "libc",
@@ -1236,7 +1236,7 @@ dependencies = [
 
 [[package]]
 name = "terminald-server"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "axum",

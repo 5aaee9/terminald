@@ -29,6 +29,7 @@ body {
 }
 
 .terminal {
+  margin: 6px 8px;
   min-height: 0;
   outline: none;
   overflow: hidden;
