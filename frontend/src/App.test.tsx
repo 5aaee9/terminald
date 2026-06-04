@@ -55,6 +55,14 @@ vi.mock("./terminal/GhosttyTerminal", () => ({
   ),
 }));
 
+function decodeResize(frame: unknown) {
+  const data = frame as Uint8Array;
+  return JSON.parse(new TextDecoder().decode(data.slice(1))) as {
+    cols: number;
+    rows: number;
+  };
+}
+
 beforeEach(() => {
   sockets.length = 0;
   vi.stubGlobal("WebSocket", MockSocket);
@@ -124,5 +132,19 @@ describe("App", () => {
     expect(sockets[0].sent).toHaveLength(2);
     expect(Array.from(sockets[0].sent[0] as Uint8Array)).toEqual([1, 97]);
     expect((sockets[0].sent[1] as Uint8Array)[0]).toBe(0);
+  });
+
+  it("sends the terminal size reported before websocket open once connected", async () => {
+    render(<App />);
+    screen.getByRole("button", { name: "terminal" }).click();
+
+    await waitFor(() => expect(sockets).toHaveLength(1));
+    expect(sockets[0].sent).toHaveLength(0);
+
+    sockets[0].open();
+
+    await waitFor(() => expect(sockets[0].sent).toHaveLength(1));
+    expect((sockets[0].sent[0] as Uint8Array)[0]).toBe(0);
+    expect(decodeResize(sockets[0].sent[0])).toEqual({ cols: 80, rows: 24 });
   });
 });

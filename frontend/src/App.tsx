@@ -9,6 +9,7 @@ type Status = "connecting" | "connected" | "closed" | "error";
 export default function App() {
   const terminalRef = useRef<TerminalHandle>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const latestSizeRef = useRef<{ cols: number; rows: number } | null>(null);
   const [status, setStatus] = useState<Status>("connecting");
   const [message, setMessage] = useState("connecting");
 
@@ -20,6 +21,7 @@ export default function App() {
   }, []);
 
   const sendResize = useCallback((cols: number, rows: number) => {
+    latestSizeRef.current = { cols, rows };
     const socket = socketRef.current;
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(encodeResize(cols, rows));
@@ -56,6 +58,10 @@ export default function App() {
         opened = true;
         setStatus("connected");
         setMessage("connected");
+        const latestSize = latestSizeRef.current;
+        if (latestSize) {
+          socket.send(encodeResize(latestSize.cols, latestSize.rows));
+        }
       });
       socket.addEventListener("close", () => {
         socketRef.current = null;
