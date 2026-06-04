@@ -1,0 +1,24 @@
+[package]
+name = "terminald-server"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+base64.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+http.workspace = true
+mime_guess = "2.0.5"
+terminald-protocol = { path = "../terminald-protocol" }
+terminald-pty = { path = "../terminald-pty" }
+tokio.workspace = true
+tower-http.workspace = true
+
+[dev-dependencies]
+http-body-util.workspace = true
+tempfile.workspace = true
+tokio-tungstenite.workspace = true
+tower.workspace = true

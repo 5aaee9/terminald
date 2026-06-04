@@ -1,0 +1,22 @@
+[package]
+name = "terminald-cli"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "terminald"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+clap.workspace = true
+crossterm.workspace = true
+futures-util.workspace = true
+http.workspace = true
+terminald-protocol = { path = "../terminald-protocol" }
+terminald-server = { path = "../terminald-server" }
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+url.workspace = true
