@@ -17,6 +17,7 @@ futures-util.workspace = true
 http.workspace = true
 terminald-protocol = { path = "../terminald-protocol" }
 terminald-server = { path = "../terminald-server" }
+rustls = { workspace = true, features = ["ring"] }
 tokio.workspace = true
-tokio-tungstenite.workspace = true
+tokio-tungstenite = { workspace = true, features = ["rustls-tls-native-roots"] }
 url.workspace = true
