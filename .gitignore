@@ -4,6 +4,6 @@ target/
 frontend/node_modules/
 frontend/dist/
 crates/terminald-server/assets/*
-!crates/terminald-server/assets/.gitkeep
+!crates/terminald-server/assets/index.html
 npm-debug.log*
 .DS_Store

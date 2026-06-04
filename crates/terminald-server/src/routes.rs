@@ -116,6 +116,13 @@ mod tests {
         app(config)
     }
 
+    fn app_with_fallback_assets(auth: AuthConfig) -> Router {
+        let mut config = ServerConfig::new(7681, vec!["bash".to_string()]);
+        config.auth = auth;
+        config.assets = AssetConfig::embedded_fallback_only();
+        app(config)
+    }
+
     fn auth_header() -> HeaderValue {
         HeaderValue::from_str(&format!("Basic {}", STANDARD.encode("user:pass"))).unwrap()
     }
@@ -223,7 +230,7 @@ mod tests {
 
     #[tokio::test]
     async fn serves_embedded_index_for_app_routes() {
-        let router = app_with_auth(AuthConfig::disabled());
+        let router = app_with_fallback_assets(AuthConfig::disabled());
         for path in [
             "/",
             "/aaa/",
@@ -234,31 +241,25 @@ mod tests {
             let response = get(router.clone(), path).await;
             assert_eq!(response.status(), StatusCode::OK);
             let body = body_text(response).await;
-            assert!(body.contains(r#"<div id="root">"#));
-            assert!(body.contains(r#"src="./assets/terminald.js""#));
+            assert!(body.contains("No frontend built"));
+            assert!(!body.contains(r#"src="./assets/terminald.js""#));
         }
     }
 
     #[tokio::test]
-    async fn serves_embedded_static_assets_under_prefixes() {
-        let router = app_with_auth(AuthConfig::disabled());
+    async fn missing_embedded_static_assets_return_not_found_under_prefixes() {
+        let router = app_with_fallback_assets(AuthConfig::disabled());
         for path in ["/assets/terminald.css", "/aaa/assets/terminald.css"] {
             let response = get(router.clone(), path).await;
-            assert_eq!(response.status(), StatusCode::OK);
-            assert!(body_text(response).await.contains(".terminal-shell"));
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
     }
 
     #[tokio::test]
     async fn protects_http_routes_when_auth_enabled() {
-        let router = app_with_auth(AuthConfig::basic(Credential::new("user:pass").unwrap()));
-        for path in [
-            "/",
-            "/aaa/",
-            "/foo/route/",
-            "/example/bbb/client/path/",
-            "/assets/terminald.css",
-        ] {
+        let router =
+            app_with_fallback_assets(AuthConfig::basic(Credential::new("user:pass").unwrap()));
+        for path in ["/", "/aaa/", "/foo/route/", "/example/bbb/client/path/"] {
             assert_eq!(
                 get(router.clone(), path).await.status(),
                 StatusCode::UNAUTHORIZED
@@ -266,6 +267,16 @@ mod tests {
             let response = get_with_auth(router.clone(), path).await;
             assert_eq!(response.status(), StatusCode::OK);
         }
+
+        let css = "/assets/terminald.css";
+        assert_eq!(
+            get(router.clone(), css).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            get_with_auth(router.clone(), css).await.status(),
+            StatusCode::NOT_FOUND
+        );
     }
 
     #[tokio::test]

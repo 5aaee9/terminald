@@ -4,7 +4,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   base: "./",
   build: {
-    outDir: "../crates/terminald-server/assets",
+    outDir: "../crates/terminald-server/assets/dist",
     rollupOptions: {
       output: {
         assetFileNames: (assetInfo) => (

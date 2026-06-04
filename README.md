@@ -10,7 +10,9 @@ npm --prefix frontend run build
 cargo build --workspace
 ```
 
-The frontend build writes generated assets into `crates/terminald-server/assets`, where the Rust server embeds them at compile time. The repository keeps only `crates/terminald-server/assets/.gitkeep`; generated HTML, JS, and CSS are ignored.
+`cargo build --workspace` works without a frontend build; the server embeds a checked-in fallback page that says `No frontend built`.
+
+Run `npm --prefix frontend run build` before release packaging or local full-UI testing. The frontend build writes generated assets into `crates/terminald-server/assets/dist`, where `rust-embed` includes them at compile time. Generated JS and CSS remain ignored source artifacts; the checked-in fallback `index.html` keeps Rust-only builds working and is not overwritten by the frontend build.
 
 ## Server
 
@@ -50,6 +52,8 @@ https://site.com/example/bbb/
 ```
 
 Use a trailing slash for mounted app paths. The server redirects extensionless non-WebSocket GET paths such as `/aaa`, `/example/bbb`, and `/custom` to the same path with a trailing slash.
+
+The browser reconnects automatically after an established WebSocket disconnects. A reconnect starts a fresh PTY session; Terminald does not replay prior terminal output or resume the old process.
 
 ## Verification
 
