@@ -36,4 +36,8 @@ tower-http = { version = "0.6.7", features = ["fs"] }
 url = "2.5.7"
 
 [profile.release]
-strip = true
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
