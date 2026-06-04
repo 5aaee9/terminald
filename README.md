@@ -5,12 +5,12 @@ Terminald is a PTY-backed web terminal written in Rust, with a React frontend us
 ## Build
 
 ```bash
-cargo build --workspace
 npm --prefix frontend install
 npm --prefix frontend run build
+cargo build --workspace
 ```
 
-The checked-in server assets are embedded in the Rust server. `frontend/dist` is a development override and is served first only when explicitly configured by tests or library callers.
+The frontend build writes generated assets into `crates/terminald-server/assets`, where the Rust server embeds them at compile time. The repository keeps only `crates/terminald-server/assets/.gitkeep`; generated HTML, JS, and CSS are ignored.
 
 ## Server
 
