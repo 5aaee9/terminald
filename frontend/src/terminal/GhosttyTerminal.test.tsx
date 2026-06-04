@@ -3,6 +3,7 @@ import { createRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import GhosttyTerminal, { type TerminalHandle } from "./GhosttyTerminal";
+import { Terminal } from "ghostty-web";
 
 const terminal = {
   cols: 80,
@@ -40,6 +41,17 @@ describe("GhosttyTerminal", () => {
   it("initializes ghostty before opening terminal", async () => {
     render(<GhosttyTerminal onData={vi.fn()} onResize={vi.fn()} />);
     await waitFor(() => expect(terminal.open).toHaveBeenCalled());
+  });
+
+  it("does not enable the local blinking cursor", async () => {
+    render(<GhosttyTerminal onData={vi.fn()} onResize={vi.fn()} />);
+    await waitFor(() =>
+      expect(Terminal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cursorBlink: false,
+        })
+      )
+    );
   });
 
   it("exposes write through the adapter", async () => {

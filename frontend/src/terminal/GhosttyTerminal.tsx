@@ -34,7 +34,7 @@ const GhosttyTerminal = forwardRef<TerminalHandle, Props>(function GhosttyTermin
       }
 
       const terminal = new Terminal({
-        cursorBlink: true,
+        cursorBlink: false,
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
         fontSize: 14,
         theme: {

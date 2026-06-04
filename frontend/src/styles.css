@@ -33,3 +33,7 @@ body {
   outline: none;
   overflow: hidden;
 }
+
+.terminal textarea {
+  caret-color: transparent;
+}
