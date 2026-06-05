@@ -7,45 +7,84 @@ use terminald_server::{AuthConfig, Credential, ServerConfig};
 use crate::client::ClientConfig;
 
 #[derive(Debug, Parser)]
-#[command(name = "terminald")]
+#[command(name = "terminald", about = "Share a terminal over the web")]
 pub struct Cli {
     #[command(subcommand)]
     command: Option<Subcommands>,
 
-    #[arg(short = 'p', long = "port", default_value_t = 7681)]
+    #[arg(
+        short = 'p',
+        long = "port",
+        default_value_t = 7681,
+        help = "Port for the server to listen on"
+    )]
     port: u16,
 
-    #[arg(short = 'c', long = "credential")]
+    #[arg(
+        short = 'c',
+        long = "credential",
+        value_name = "USER:PASSWORD",
+        help = "Basic authentication credential"
+    )]
     credential: Option<String>,
 
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        help = "Command to run in the shared terminal"
+    )]
     server_command: Vec<String>,
 }
 
 #[derive(Debug, Subcommand)]
 enum Subcommands {
+    #[command(about = "Run a terminald server")]
     Server(ServerArgs),
+    #[command(about = "Connect to a terminald server")]
     Client(ClientArgs),
 }
 
 #[derive(Debug, Args)]
 struct ServerArgs {
-    #[arg(short = 'p', long = "port", default_value_t = 7681)]
+    #[arg(
+        short = 'p',
+        long = "port",
+        default_value_t = 7681,
+        help = "Port for the server to listen on"
+    )]
     port: u16,
 
-    #[arg(short = 'c', long = "credential")]
+    #[arg(
+        short = 'c',
+        long = "credential",
+        value_name = "USER:PASSWORD",
+        help = "Basic authentication credential"
+    )]
     credential: Option<String>,
 
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        help = "Command to run in the shared terminal"
+    )]
     command: Vec<String>,
 }
 
 #[derive(Debug, Args)]
 struct ClientArgs {
-    #[arg(long = "connect")]
+    #[arg(
+        long = "connect",
+        value_name = "URL",
+        help = "Server URL to connect to"
+    )]
     connect: String,
 
-    #[arg(short = 'c', long = "credential")]
+    #[arg(
+        short = 'c',
+        long = "credential",
+        value_name = "USER:PASSWORD",
+        help = "Basic authentication credential"
+    )]
     credential: Option<String>,
 }
 
@@ -109,7 +148,7 @@ pub fn parse_credential(value: Option<String>) -> Result<Option<Credential>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::Parser;
+    use clap::{CommandFactory, Parser};
 
     #[test]
     fn parses_explicit_server() {
@@ -177,5 +216,41 @@ mod tests {
         };
         assert_eq!(config.connect, "http://127.0.0.1:7681");
         assert!(config.credential.is_some());
+    }
+
+    #[test]
+    fn top_level_help_describes_commands_and_arguments() {
+        let help = Cli::command().render_long_help().to_string();
+
+        assert!(help.contains("server  Run a terminald server"));
+        assert!(help.contains("client  Connect to a terminald server"));
+        assert!(help.contains("-p, --port <PORT>"));
+        assert!(help.contains("Port for the server to listen on"));
+        assert!(help.contains("-c, --credential <USER:PASSWORD>"));
+        assert!(help.contains("Basic authentication credential"));
+        assert!(help.contains("[SERVER_COMMAND]..."));
+        assert!(help.contains("Command to run in the shared terminal"));
+    }
+
+    #[test]
+    fn subcommand_help_describes_arguments() {
+        let mut command = Cli::command();
+        let server_help = command
+            .find_subcommand_mut("server")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        assert!(server_help.contains("Run a terminald server"));
+        assert!(server_help.contains("[COMMAND]..."));
+        assert!(server_help.contains("Command to run in the shared terminal"));
+
+        let client_help = command
+            .find_subcommand_mut("client")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        assert!(client_help.contains("Connect to a terminald server"));
+        assert!(client_help.contains("--connect <URL>"));
+        assert!(client_help.contains("Server URL to connect to"));
     }
 }
