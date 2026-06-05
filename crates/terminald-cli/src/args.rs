@@ -42,6 +42,8 @@ enum Subcommands {
     Server(ServerArgs),
     #[command(about = "Connect to a terminald server")]
     Client(ClientArgs),
+    #[command(about = "Print the terminald version")]
+    Version,
 }
 
 #[derive(Debug, Args)]
@@ -92,6 +94,7 @@ struct ClientArgs {
 pub enum CommandMode {
     Server(ServerConfig),
     Client(ClientConfig),
+    Version,
 }
 
 impl Cli {
@@ -106,6 +109,7 @@ impl Cli {
                 connect: args.connect,
                 credential: parse_credential(args.credential)?,
             })),
+            Some(Subcommands::Version) => Ok(CommandMode::Version),
             None => {
                 if self.server_command.is_empty() {
                     bail!("command is required");
@@ -219,11 +223,21 @@ mod tests {
     }
 
     #[test]
+    fn parses_version() {
+        let cli = Cli::try_parse_from(["terminald", "version"]).unwrap();
+        assert!(matches!(cli.into_mode().unwrap(), CommandMode::Version));
+    }
+
+    #[test]
     fn top_level_help_describes_commands_and_arguments() {
         let help = Cli::command().render_long_help().to_string();
 
-        assert!(help.contains("server  Run a terminald server"));
-        assert!(help.contains("client  Connect to a terminald server"));
+        assert!(help.contains("server"));
+        assert!(help.contains("Run a terminald server"));
+        assert!(help.contains("client"));
+        assert!(help.contains("Connect to a terminald server"));
+        assert!(help.contains("version"));
+        assert!(help.contains("Print the terminald version"));
         assert!(help.contains("-p, --port <PORT>"));
         assert!(help.contains("Port for the server to listen on"));
         assert!(help.contains("-c, --credential <USER:PASSWORD>"));
@@ -252,5 +266,12 @@ mod tests {
         assert!(client_help.contains("Connect to a terminald server"));
         assert!(client_help.contains("--connect <URL>"));
         assert!(client_help.contains("Server URL to connect to"));
+
+        let version_help = command
+            .find_subcommand_mut("version")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        assert!(version_help.contains("Print the terminald version"));
     }
 }

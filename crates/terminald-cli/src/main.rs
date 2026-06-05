@@ -12,5 +12,9 @@ async fn main() -> Result<()> {
     match Cli::parse().into_mode()? {
         CommandMode::Server(config) => server::run(config).await,
         CommandMode::Client(config) => client::run(config).await,
+        CommandMode::Version => {
+            println!("{}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
     }
 }
