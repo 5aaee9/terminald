@@ -29,6 +29,7 @@ body {
 }
 
 .terminal {
+  caret-color: transparent;
   margin: 6px 8px;
   min-height: 0;
   outline: none;

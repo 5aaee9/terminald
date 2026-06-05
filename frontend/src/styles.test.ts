@@ -9,6 +9,10 @@ describe("terminal styles", () => {
     expect(styles).toContain("margin: 6px 8px");
   });
 
+  it("hides the browser caret for ghostty's contenteditable host", () => {
+    expect(styles).toMatch(/\.terminal\s*\{[^}]*caret-color:\s*transparent;/s);
+  });
+
   it("hides the browser caret for ghostty's hidden input", () => {
     expect(styles).toContain(".terminal textarea");
     expect(styles).toContain("caret-color: transparent");
