@@ -82,10 +82,15 @@ impl PtyProcess {
     }
 
     pub async fn terminate(&mut self) -> Result<()> {
-        let process_group = Pid::from_raw(-(self.child_id()? as i32));
-        let _ = kill(process_group, Signal::SIGTERM);
-        self.wait().await?;
-        Ok(())
+        let child = Arc::clone(&self.inner.child);
+        task::spawn_blocking(move || {
+            let mut child = child
+                .lock()
+                .map_err(|_| anyhow!("PTY child lock poisoned"))?;
+            terminate_child_process_group_blocking(&mut child)
+        })
+        .await
+        .context("join PTY terminate task")?
     }
 
     pub async fn wait(&self) -> Result<ExitStatus> {
@@ -174,23 +179,44 @@ impl PtyHandle {
         }
         Ok(())
     }
+
+    fn terminate_blocking_best_effort(&self) {
+        let Ok(mut child) = self.child.lock() else {
+            return;
+        };
+        let _ = terminate_child_process_group_blocking(&mut child);
+    }
 }
 
 impl Drop for PtyProcess {
     fn drop(&mut self) {
-        let Ok(mut child) = self.inner.child.lock() else {
-            return;
-        };
-        if child.try_wait().ok().flatten().is_some() {
-            return;
-        }
-        let _ = kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM);
-        let _ = child.wait();
+        self.inner.terminate_blocking_best_effort();
     }
 }
 
 fn is_pty_eof(error: &std::io::Error) -> bool {
     error.kind() == ErrorKind::UnexpectedEof || error.raw_os_error() == Some(Errno::EIO as i32)
+}
+
+fn terminate_process_group(child_id: u32) -> Result<()> {
+    match kill(Pid::from_raw(-(child_id as i32)), Signal::SIGTERM) {
+        Ok(()) | Err(Errno::ESRCH) => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("terminate PTY process group {child_id}")),
+    }
+}
+
+fn terminate_child_process_group_blocking(child: &mut Child) -> Result<()> {
+    if child
+        .try_wait()
+        .context("check PTY child status before terminate")?
+        .is_some()
+    {
+        return Ok(());
+    }
+    let child_id = child.id();
+    terminate_process_group(child_id)?;
+    child.wait().context("wait for PTY child after terminate")?;
+    Ok(())
 }
 
 fn spawn_blocking(argv: Vec<String>, size: PtySize) -> Result<PtyProcess> {
@@ -253,7 +279,30 @@ fn child_setup(slave: &OwnedFd) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use tokio::time::{Duration, timeout};
+
+    async fn wait_for_file(path: &Path) -> bool {
+        for _ in 0..50 {
+            if tokio::fs::try_exists(path).await.unwrap() {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        false
+    }
+
+    async fn wait_until_contains(path: &Path, expected: &str) -> bool {
+        for _ in 0..50 {
+            if let Ok(contents) = tokio::fs::read_to_string(path).await
+                && contents.contains(expected)
+            {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        false
+    }
 
     #[tokio::test]
     async fn spawns_reads_writes_and_resizes() {
@@ -280,5 +329,35 @@ mod tests {
 
         process.resize(100, 40).unwrap();
         process.terminate().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn drop_terminates_process_group_children() {
+        let dir = tempfile::tempdir().unwrap();
+        let ready = dir.path().join("ready");
+        let trapped = dir.path().join("trapped");
+        let script = format!(
+            "sh -c 'trap \"echo child-term > {trapped}; exit 0\" TERM; trap \"\" HUP; touch {ready}; while true; do sleep 1; done' & wait",
+            ready = ready.display(),
+            trapped = trapped.display(),
+        );
+
+        let process = PtyProcess::spawn(
+            PtyCommand::new(vec!["sh".into(), "-lc".into(), script]),
+            PtySize::default(),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            wait_for_file(&ready).await,
+            "background child process did not become ready"
+        );
+        drop(process);
+
+        assert!(
+            wait_until_contains(&trapped, "child-term").await,
+            "background child process did not receive SIGTERM from PTY Drop cleanup"
+        );
     }
 }

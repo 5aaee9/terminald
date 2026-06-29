@@ -1385,6 +1385,7 @@ dependencies = [
  "anyhow",
  "libc",
  "nix",
+ "tempfile",
  "tokio",
 ]
 
