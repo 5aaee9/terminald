@@ -32,12 +32,12 @@ File sizes must stay below 400 LOC. Code is split by responsibility before files
 
 The browser and CLI client connect to `GET ws` relative to the current page URL after mount-path normalization. The server accepts WebSocket upgrades for `/ws`, `/aaa/ws`, `/example/bbb/ws`, and any other path ending in `/ws`. The server accepts WebSocket binary and text frames. Binary frames use a one-byte operation prefix:
 
-| Prefix | Direction | Payload | Meaning |
-| --- | --- | --- | --- |
-| `0` | client to server | UTF-8 JSON `{ "cols": number, "rows": number }` | Resize PTY. |
-| `1` | client to server | raw bytes | Write bytes to PTY stdin. |
-| `2` | server to client | raw bytes | PTY stdout/stderr output. |
-| `3` | server to client | UTF-8 text | Server-side error message before close. |
+| Prefix | Direction        | Payload                                         | Meaning                                 |
+| ------ | ---------------- | ----------------------------------------------- | --------------------------------------- |
+| `0`    | client to server | UTF-8 JSON `{ "cols": number, "rows": number }` | Resize PTY.                             |
+| `1`    | client to server | raw bytes                                       | Write bytes to PTY stdin.               |
+| `2`    | server to client | raw bytes                                       | PTY stdout/stderr output.               |
+| `3`    | server to client | UTF-8 text                                      | Server-side error message before close. |
 
 The server also accepts text frames from clients as stdin bytes to simplify testing and the CLI client. Invalid resize JSON is treated as a boundary error and reported to the client without panicking.
 

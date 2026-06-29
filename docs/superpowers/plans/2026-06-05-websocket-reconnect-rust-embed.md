@@ -29,6 +29,7 @@
 ## Task 1: Frontend Reconnect Tests
 
 **Files:**
+
 - Modify: `/home/indexyz/terminald/frontend/src/App.test.tsx`
 
 **Ownership:** Frontend tests only.
@@ -309,6 +310,7 @@ Expected before implementation: at least the reconnect tests fail because no sec
 ## Task 2: Frontend Reconnect Implementation
 
 **Files:**
+
 - Modify: `/home/indexyz/terminald/frontend/src/App.tsx`
 
 **Ownership:** Frontend app component only.
@@ -457,9 +459,10 @@ useEffect(() => {
       if (cancelled || currentAttempt !== attempt) {
         return;
       }
-      const data = event.data instanceof ArrayBuffer
-        ? new Uint8Array(event.data)
-        : new TextEncoder().encode(String(event.data));
+      const data =
+        event.data instanceof ArrayBuffer
+          ? new Uint8Array(event.data)
+          : new TextEncoder().encode(String(event.data));
       const frame = decodeServerFrame(data);
       if (frame.type === "output") {
         terminalRef.current?.write(frame.data);
@@ -498,6 +501,7 @@ Expected: all `App` tests pass.
 ## Task 3: Rust Embed Asset Tests
 
 **Files:**
+
 - Modify: `/home/indexyz/terminald/crates/terminald-server/src/routes.rs`
 - Modify: `/home/indexyz/terminald/crates/terminald-server/src/assets.rs`
 - Modify: `/home/indexyz/terminald/.gitignore`
@@ -531,7 +535,9 @@ Replace `/home/indexyz/terminald/crates/terminald-server/assets/index.html` with
   <body>
     <main>
       <h1>No frontend built</h1>
-      <p>Run npm --prefix frontend run build to generate the Terminald web UI.</p>
+      <p>
+        Run npm --prefix frontend run build to generate the Terminald web UI.
+      </p>
     </main>
   </body>
 </html>
@@ -675,6 +681,7 @@ Expected before implementation: build or tests fail because `assets.rs` still re
 ## Task 4: Rust Embed Asset Implementation
 
 **Files:**
+
 - Modify: `/home/indexyz/terminald/frontend/vite.config.ts`
 - Modify: `/home/indexyz/terminald/Cargo.toml`
 - Modify: `/home/indexyz/terminald/crates/terminald-server/Cargo.toml`
@@ -775,6 +782,7 @@ Expected: tests pass.
 ## Task 5: Documentation And Full Verification
 
 **Files:**
+
 - Modify: `/home/indexyz/terminald/README.md`
 
 **Ownership:** Docs and verification only.

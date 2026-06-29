@@ -1,11 +1,14 @@
 ## Project Overview
+
 TODO
 
 ## 项目要求
+
 - 不要吞掉底层异常或 cause/context 链。跨运行时、reload、listener、配置源、网络/系统调用等边界记录或返回错误时，必须保留下层错误信息方便排查；Rust `anyhow` 错误进入日志时优先使用 `{err:#}` / `{error:#}` 或等价完整 context 链格式，而不是只输出最外层 `Display`。
 - No legacy fallback
 
 ### Lint
+
 Make sure pass the clippy and rustfmt test via: `cargo clippy` and `cargo fmt` after edit files.
 
 Split modules into multiple files when files grow too large. Start split when file exceed 400 line of file (LOC). Dont use `include!` macro to split files.
@@ -13,6 +16,7 @@ Split modules into multiple files when files grow too large. Start split when fi
 Run `cargo nextest run --manifest-path "Cargo.toml" --workspace` test after task done.
 
 ## Workspace Crates
+
 TODO
 
 ## Key Dependencies
@@ -21,13 +25,12 @@ TODO
 - **Serialization**: `serde` + `serde_json`
 - **Test runner**: `cargo nextest`
 
-
 ## Avoid over-engineering. Only make changes that are directly requested or clearly necessary. Keep solutions simple and focused.
+
 - Don't add features, refactor code, or make "improvements" beyond what was asked. A bug fix doesn't need surrounding code cleaned up. A simple feature doesn't need extra configurability. Don't add docstrings, comments, or type annotations to code you didn't change. Only add comments where the logic isn't self-evident.
 - Don't add error handling, fallbacks, or validation for scenarios that can't happen. Trust internal code and framework guarantees. Only validate at system boundaries (user input, external APIs). Don't use feature flags or backwards-compatibility shims when you can just change the code.
 - Don't create helpers, utilities, or abstractions for one-time operations. Don't design for hypothetical future requirements. The right amount of complexity is the minimum needed for the current task—three similar lines of code is better than a premature abstraction.
-- Avoid backwards-compatibility hacks like renaming unused _vars, re-exporting types, adding // removed comments for removed code, etc. If you are certain that something is unused, you can delete it completely.
-
+- Avoid backwards-compatibility hacks like renaming unused \_vars, re-exporting types, adding // removed comments for removed code, etc. If you are certain that something is unused, you can delete it completely.
 
 ## DO NOT OVER-DEFEND
 
@@ -54,6 +57,7 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
 
 Before implementing:
+
 - State your assumptions explicitly. If uncertain, ask.
 - If multiple interpretations exist, present them - don't pick silently.
 - If a simpler approach exists, say so. Push back when warranted.
@@ -76,12 +80,14 @@ Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, sim
 **Touch only what you must. Clean up only your own mess.**
 
 When editing existing code:
+
 - Don't "improve" adjacent code, comments, or formatting.
 - Don't refactor things that aren't broken.
 - Match existing style, even if you'd do it differently.
 - If you notice unrelated dead code, mention it - don't delete it.
 
 When your changes create orphans:
+
 - Remove imports/variables/functions that YOUR changes made unused.
 - Don't remove pre-existing dead code unless asked.
 
@@ -92,11 +98,13 @@ The test: Every changed line should trace directly to the user's request.
 **Define success criteria. Loop until verified.**
 
 Transform tasks into verifiable goals:
+
 - "Add validation" → "Write tests for invalid inputs, then make them pass"
 - "Fix the bug" → "Write a test that reproduces it, then make it pass"
 - "Refactor X" → "Ensure tests pass before and after"
 
 For multi-step tasks, state a brief plan:
+
 ```
 1. [Step] → verify: [check]
 2. [Step] → verify: [check]

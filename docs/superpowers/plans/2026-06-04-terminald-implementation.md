@@ -27,6 +27,7 @@ All implementation source files must remain below 400 LOC.
 ## Task 1: Workspace And Protocol Crate
 
 **Files:**
+
 - Create: `/home/indexyz/terminald/Cargo.toml`
 - Create: `/home/indexyz/terminald/crates/terminald-protocol/Cargo.toml`
 - Create: `/home/indexyz/terminald/crates/terminald-protocol/src/lib.rs`
@@ -36,6 +37,7 @@ All implementation source files must remain below 400 LOC.
 **Ownership:** Only the workspace manifest and `terminald-protocol` crate. Do not touch PTY, server, CLI, frontend, or README files in this task.
 
 **Acceptance Criteria:**
+
 - Workspace metadata resolves with `cargo metadata --no-deps`.
 - `ClientMessage` decodes resize and input frames.
 - `ServerMessage` encodes output and error frames.
@@ -90,6 +92,7 @@ Expected: workspace metadata exits `0` and lists `terminald-protocol`.
 ## Task 2: PTY Crate
 
 **Files:**
+
 - Create: `/home/indexyz/terminald/crates/terminald-pty/Cargo.toml`
 - Create: `/home/indexyz/terminald/crates/terminald-pty/src/lib.rs`
 - Create: `/home/indexyz/terminald/crates/terminald-pty/src/error.rs`
@@ -98,6 +101,7 @@ Expected: workspace metadata exits `0` and lists `terminald-protocol`.
 **Ownership:** Only the `terminald-pty` crate and workspace dependency entries needed by this crate. Do not touch server, CLI, frontend, or docs in this task.
 
 **Acceptance Criteria:**
+
 - PTY allocation uses `nix::pty::openpty`.
 - Child process setup preserves controlling terminal behavior with session/process-group setup.
 - `PtyProcess::read`, `write_all`, `resize`, and `terminate` are callable from async code.
@@ -152,6 +156,7 @@ Expected: no leaked child process diagnostics and no panic during cleanup.
 ## Task 3: Server Auth, Assets, And Routes
 
 **Files:**
+
 - Create: `/home/indexyz/terminald/crates/terminald-server/Cargo.toml`
 - Create: `/home/indexyz/terminald/crates/terminald-server/src/lib.rs`
 - Create: `/home/indexyz/terminald/crates/terminald-server/src/auth.rs`
@@ -165,6 +170,7 @@ Expected: no leaked child process diagnostics and no panic during cleanup.
 **Ownership:** Server crate auth, route, asset, and app construction modules only. Do not implement WebSocket PTY bridging in this task.
 
 **Acceptance Criteria:**
+
 - `GET /auth/check` returns `204` when auth is disabled.
 - `GET /auth/check` returns `401` plus `WWW-Authenticate: Basic realm="terminald"` when auth is enabled and credentials are missing or invalid.
 - `GET /auth/check` returns `204` with valid Basic credentials.
@@ -250,6 +256,7 @@ Expected: external `frontend/dist` assets take priority over embedded assets.
 ## Task 4: WebSocket PTY Sessions And Server Runner
 
 **Files:**
+
 - Modify: `/home/indexyz/terminald/crates/terminald-server/src/lib.rs`
 - Modify: `/home/indexyz/terminald/crates/terminald-server/src/routes.rs`
 - Modify: `/home/indexyz/terminald/crates/terminald-server/src/server.rs`
@@ -258,6 +265,7 @@ Expected: external `frontend/dist` assets take priority over embedded assets.
 **Ownership:** Server crate WebSocket/session/runner code only. Do not change CLI or frontend files in this task.
 
 **Acceptance Criteria:**
+
 - Any path whose final segment is `ws` upgrades when auth is disabled.
 - `/aaa/ws` upgrades and bridges PTY output/input.
 - Auth-enabled WebSocket requests without Basic credentials are rejected before upgrade.
@@ -329,6 +337,7 @@ Expected: text WebSocket frames are forwarded to PTY stdin.
 ## Task 5: CLI Server And Client
 
 **Files:**
+
 - Create: `/home/indexyz/terminald/crates/terminald-cli/Cargo.toml`
 - Create: `/home/indexyz/terminald/crates/terminald-cli/src/main.rs`
 - Create: `/home/indexyz/terminald/crates/terminald-cli/src/args.rs`
@@ -339,6 +348,7 @@ Expected: text WebSocket frames are forwarded to PTY stdin.
 **Ownership:** CLI crate only, plus workspace dependency entries needed by this crate.
 
 **Acceptance Criteria:**
+
 - Explicit `terminald server ...` and implicit `terminald ...` both select server mode.
 - `cargo build --workspace` produces a binary named `terminald`; use `[[bin]] name = "terminald"` in the CLI crate if needed.
 - Server mode requires a trailing command and emits a clap error containing `command is required` when missing.
@@ -411,6 +421,7 @@ Expected: Cargo builds a binary named `terminald`.
 ## Task 6: Frontend Toolchain And Protocol Tests
 
 **Files:**
+
 - Create: `/home/indexyz/terminald/frontend/package.json`
 - Create: `/home/indexyz/terminald/frontend/index.html`
 - Create: `/home/indexyz/terminald/frontend/vite.config.ts`
@@ -426,6 +437,7 @@ Expected: Cargo builds a binary named `terminald`.
 **Ownership:** Frontend package metadata and helper modules/tests only. Do not implement React terminal UI in this task.
 
 **Acceptance Criteria:**
+
 - `npm --prefix frontend install` creates a lockfile.
 - Vite config uses `base: "./"`.
 - Protocol helpers encode prefixes `0`, `1`, `2`, and `3` consistently with the Rust crate.
@@ -469,6 +481,7 @@ Expected: ESLint passes for helper files.
 ## Task 7: Frontend Terminal App
 
 **Files:**
+
 - Create: `/home/indexyz/terminald/frontend/src/main.tsx`
 - Create: `/home/indexyz/terminald/frontend/src/App.tsx`
 - Create: `/home/indexyz/terminald/frontend/src/styles.css`
@@ -478,6 +491,7 @@ Expected: ESLint passes for helper files.
 **Ownership:** Frontend React app and terminal adapter only. Do not edit Rust crates in this task.
 
 **Acceptance Criteria:**
+
 - App starts on a terminal surface, not a landing page.
 - `GET auth/check` is called before opening WebSocket.
 - WebSocket opens only after `204`.
@@ -531,12 +545,14 @@ Expected: script and stylesheet references are relative paths beginning with `./
 ## Task 8: README, Full Verification, And Source Size Check
 
 **Files:**
+
 - Create: `/home/indexyz/terminald/README.md`
 - Modify: `/home/indexyz/terminald/.gitignore`
 
 **Ownership:** README, ignore files, and final verification only. Do not add new product features in this task.
 
 **Acceptance Criteria:**
+
 - README includes server and client command examples from the spec.
 - README states missing server command is an error and no shell fallback exists.
 - README documents reverse-proxy trailing-slash behavior.

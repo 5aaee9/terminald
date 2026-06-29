@@ -5,6 +5,12 @@ Terminald is a PTY-backed web terminal written in Rust, with a React frontend us
 ## Build
 
 ```bash
+nix build
+```
+
+The Nix flake builds the frontend first and embeds the generated assets into the Rust binary.
+
+```bash
 npm --prefix frontend install
 npm --prefix frontend run build
 cargo build --workspace
@@ -56,6 +62,13 @@ Use a trailing slash for mounted app paths. The server redirects extensionless n
 The browser reconnects automatically after an established WebSocket disconnects. A reconnect starts a fresh PTY session; Terminald does not replay prior terminal output or resume the old process.
 
 ## Verification
+
+Nix:
+
+```bash
+nix fmt
+nix flake check
+```
 
 Rust:
 

@@ -1,4 +1,6 @@
 target/
+result
+result-*
 /ttyd
 .omx
 frontend/node_modules/
