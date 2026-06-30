@@ -17,4 +17,24 @@ describe("terminal styles", () => {
     expect(styles).toContain(".terminal textarea");
     expect(styles).toContain("caret-color: transparent");
   });
+
+  it("keeps the status bar single-line with stable height", () => {
+    expect(styles).toMatch(/\.status\s*\{[^}]*min-height:\s*24px;/s);
+    expect(styles).toMatch(/\.status\s*\{[^}]*white-space:\s*nowrap;/s);
+    expect(styles).toMatch(/\.status\s*\{[^}]*overflow:\s*hidden;/s);
+  });
+
+  it("styles primary and detail status text separately", () => {
+    expect(styles).toContain(".status__primary");
+    expect(styles).toContain(".status__separator");
+    expect(styles).toContain(".status__detail");
+    expect(styles).toMatch(/\.status__detail\s*\{[^}]*text-overflow:\s*ellipsis;/s);
+  });
+
+  it("uses semantic data attributes for status tones", () => {
+    expect(styles).toContain('.status[data-phase="connected"]');
+    expect(styles).toContain('.status[data-phase="reconnecting"]');
+    expect(styles).toContain('.status[data-phase="error"]');
+    expect(styles).toContain('.status[data-phase="closed"]');
+  });
 });

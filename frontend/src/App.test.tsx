@@ -91,11 +91,11 @@ afterEach(() => {
 describe("App", () => {
   it("shows connecting then connected", async () => {
     render(<App />);
-    expect(screen.getByRole("status")).toHaveTextContent("connecting");
+    expect(screen.getByRole("status")).toHaveTextContent("Connecting · auth check pending");
     await waitFor(() => expect(sockets).toHaveLength(1));
     sockets[0].open();
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent("connected");
+      expect(screen.getByRole("status")).toHaveTextContent("Connected · ws ready");
     });
   });
 
@@ -103,7 +103,7 @@ describe("App", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 401 })));
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent("authentication required");
+      expect(screen.getByRole("status")).toHaveTextContent("Auth required · credentials rejected");
     });
     expect(sockets).toHaveLength(0);
   });
@@ -114,7 +114,7 @@ describe("App", () => {
     sockets[0].open();
     sockets[0].closeEvent();
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent("reconnecting");
+      expect(screen.getByRole("status")).toHaveTextContent("Reconnecting · retrying connection");
     });
 
     cleanup();
@@ -122,7 +122,7 @@ describe("App", () => {
     await waitFor(() => expect(sockets).toHaveLength(2));
     sockets[1].fail();
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent("websocket error");
+      expect(screen.getByRole("status")).toHaveTextContent("Error · websocket error");
     });
   });
 
@@ -131,7 +131,7 @@ describe("App", () => {
     await waitFor(() => expect(sockets).toHaveLength(1));
     sockets[0].closeEvent();
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent("authentication or websocket upgrade failed");
+      expect(screen.getByRole("status")).toHaveTextContent("Error · websocket upgrade failed");
     });
   });
 
@@ -140,7 +140,7 @@ describe("App", () => {
     await waitFor(() => expect(sockets).toHaveLength(1));
     sockets[0].open();
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent("connected");
+      expect(screen.getByRole("status")).toHaveTextContent("Connected · ws ready");
     });
     screen.getByRole("button", { name: "terminal" }).click();
     expect(sockets[0].sent).toHaveLength(2);
@@ -174,7 +174,7 @@ describe("App", () => {
 
     sockets[0].closeEvent();
     await flushEffects();
-    expect(screen.getByRole("status")).toHaveTextContent("reconnecting");
+    expect(screen.getByRole("status")).toHaveTextContent("Reconnecting · retrying connection");
 
     await advanceReconnectDelay();
 
@@ -182,7 +182,7 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     sockets[1].open();
     await flushEffects();
-    expect(screen.getByRole("status")).toHaveTextContent("connected");
+    expect(screen.getByRole("status")).toHaveTextContent("Connected · new PTY session");
   });
 
   it("stops reconnecting when the remote command exits", async () => {
@@ -195,7 +195,7 @@ describe("App", () => {
     sockets[0].message(new Uint8Array([4, 45, 49]));
     sockets[0].closeEvent();
     await flushEffects();
-    expect(screen.getByRole("status")).toHaveTextContent("Remote exited with code -1");
+    expect(screen.getByRole("status")).toHaveTextContent("Closed · remote exited -1");
 
     await advanceReconnectDelay();
 
@@ -242,7 +242,7 @@ describe("App", () => {
     expect(sockets).toHaveLength(1);
     sockets[0].closeEvent();
     await flushEffects();
-    expect(screen.getByRole("status")).toHaveTextContent("authentication or websocket upgrade failed");
+    expect(screen.getByRole("status")).toHaveTextContent("Error · websocket upgrade failed");
 
     await advanceReconnectDelay();
 
@@ -262,7 +262,7 @@ describe("App", () => {
     expect(sockets).toHaveLength(2);
     sockets[1].closeEvent();
     await flushEffects();
-    expect(screen.getByRole("status")).toHaveTextContent("reconnecting");
+    expect(screen.getByRole("status")).toHaveTextContent("Reconnecting · retrying connection");
 
     await advanceReconnectDelay();
 
@@ -279,7 +279,7 @@ describe("App", () => {
     sockets[0].closeEvent();
 
     await flushEffects();
-    expect(screen.getByRole("status")).toHaveTextContent("reconnecting");
+    expect(screen.getByRole("status")).toHaveTextContent("Reconnecting · retrying connection");
     await advanceReconnectDelay();
 
     expect(sockets).toHaveLength(2);
@@ -299,7 +299,7 @@ describe("App", () => {
     await advanceReconnectDelay();
 
     await flushEffects();
-    expect(screen.getByRole("status")).toHaveTextContent("authentication required");
+    expect(screen.getByRole("status")).toHaveTextContent("Auth required · credentials rejected");
     expect(sockets).toHaveLength(1);
   });
 
@@ -316,7 +316,7 @@ describe("App", () => {
     sockets[0].closeEvent();
     await advanceReconnectDelay();
     await flushEffects();
-    expect(screen.getByRole("status")).toHaveTextContent("reconnecting");
+    expect(screen.getByRole("status")).toHaveTextContent("Reconnecting · network down");
 
     await advanceReconnectDelay();
 
@@ -337,7 +337,7 @@ describe("App", () => {
     await advanceReconnectDelay();
 
     await flushEffects();
-    expect(screen.getByRole("status")).toHaveTextContent("authentication check failed");
+    expect(screen.getByRole("status")).toHaveTextContent("Error · auth check failed");
     expect(sockets).toHaveLength(1);
 
     await advanceReconnectDelay();
@@ -352,7 +352,7 @@ describe("App", () => {
 
     render(<App />);
     await flushEffects();
-    expect(screen.getByRole("status")).toHaveTextContent("network down");
+    expect(screen.getByRole("status")).toHaveTextContent("Error · network down");
 
     await advanceReconnectDelay();
     expect(sockets).toHaveLength(0);

@@ -19,13 +19,83 @@ body {
 }
 
 .status {
+  align-items: center;
   background: #18212a;
   border-bottom: 1px solid #2b3945;
   color: #aab8c5;
+  display: flex;
   font-size: 12px;
-  line-height: 20px;
-  min-height: 20px;
+  gap: 0;
+  line-height: 24px;
+  min-height: 24px;
+  overflow: hidden;
   padding: 0 8px;
+  white-space: nowrap;
+}
+
+.status__indicator {
+  background: #7d8b99;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  height: 7px;
+  margin-right: 6px;
+  width: 7px;
+}
+
+.status__primary {
+  color: #d8e0e7;
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.status__detail {
+  color: #aab8c5;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status__separator {
+  color: #7d8b99;
+  flex: 0 0 auto;
+}
+
+.status[data-phase="connected"] {
+  background: #16211d;
+  border-bottom-color: #294236;
+}
+
+.status[data-phase="connected"] .status__indicator {
+  background: #67c58f;
+}
+
+.status[data-phase="reconnecting"],
+.status[data-phase="connecting"] {
+  background: #1d2028;
+  border-bottom-color: #35405a;
+}
+
+.status[data-phase="reconnecting"] .status__indicator,
+.status[data-phase="connecting"] .status__indicator {
+  background: #8da8ff;
+}
+
+.status[data-phase="error"] {
+  background: #271b1d;
+  border-bottom-color: #573138;
+}
+
+.status[data-phase="error"] .status__indicator {
+  background: #ff8b8b;
+}
+
+.status[data-phase="closed"] {
+  background: #211f1b;
+  border-bottom-color: #494235;
+}
+
+.status[data-phase="closed"] .status__indicator {
+  background: #d4a85f;
 }
 
 .terminal {

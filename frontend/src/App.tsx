@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import ConnectionStatusBar from "./terminal/ConnectionStatusBar";
 import GhosttyTerminal, { type TerminalHandle } from "./terminal/GhosttyTerminal";
+import { NEW_SESSION_NOTICE_MS, type ConnectionState } from "./terminal/connectionState";
 import { decodeServerFrame, encodeInput, encodeResize } from "./terminal/protocol";
 import { resolveAuthCheckUrl, resolveWebSocketUrl } from "./terminal/urls";
-
-type Status = "connecting" | "connected" | "reconnecting" | "closed" | "error";
 
 const RECONNECT_DELAY_MS = 1000;
 
@@ -13,8 +13,7 @@ export default function App() {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestSizeRef = useRef<{ cols: number; rows: number } | null>(null);
-  const [status, setStatus] = useState<Status>("connecting");
-  const [message, setMessage] = useState("connecting");
+  const [connectionState, setConnectionState] = useState<ConnectionState>({ phase: "connecting" });
 
   const sendInput = useCallback((data: string) => {
     const socket = socketRef.current;
@@ -35,6 +34,7 @@ export default function App() {
     let cancelled = false;
     let attempt = 0;
     let remoteExited = false;
+    let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
     const clearReconnectTimer = () => {
       if (reconnectTimerRef.current) {
@@ -43,12 +43,49 @@ export default function App() {
       }
     };
 
+    const clearNoticeTimer = () => {
+      if (noticeTimer) {
+        clearTimeout(noticeTimer);
+        noticeTimer = null;
+      }
+    };
+
+    const setState = (state: ConnectionState) => {
+      if (state.notice !== "new_session") {
+        clearNoticeTimer();
+      }
+      setConnectionState(state);
+    };
+
+    const showConnected = (isReconnect: boolean) => {
+      if (!isReconnect) {
+        setState({ phase: "connected" });
+        return;
+      }
+      clearNoticeTimer();
+      setState({ phase: "connected", notice: "new_session" });
+      noticeTimer = setTimeout(() => {
+        noticeTimer = null;
+        setConnectionState((current) => {
+          if (current.phase === "connected" && current.notice === "new_session") {
+            return { phase: "connected" };
+          }
+          return current;
+        });
+      }, NEW_SESSION_NOTICE_MS);
+    };
+
     const scheduleReconnect = () => {
       if (cancelled || reconnectTimerRef.current) {
         return;
       }
-      setStatus("reconnecting");
-      setMessage("reconnecting");
+      clearNoticeTimer();
+      setConnectionState((current) => {
+        if (current.phase === "reconnecting" && current.reason === "network") {
+          return current;
+        }
+        return { phase: "reconnecting" };
+      });
       reconnectTimerRef.current = setTimeout(() => {
         reconnectTimerRef.current = null;
         void connect(true);
@@ -57,8 +94,7 @@ export default function App() {
 
     async function connect(isReconnect: boolean) {
       const currentAttempt = ++attempt;
-      setStatus(isReconnect ? "reconnecting" : "connecting");
-      setMessage(isReconnect ? "reconnecting" : "connecting");
+      setState({ phase: isReconnect ? "reconnecting" : "connecting" });
 
       let auth: Response;
       try {
@@ -68,10 +104,18 @@ export default function App() {
           return;
         }
         if (isReconnect) {
+          setState({
+            phase: "reconnecting",
+            reason: "network",
+            detail: error instanceof Error ? error.message : "connection error",
+          });
           scheduleReconnect();
         } else {
-          setStatus("error");
-          setMessage(error instanceof Error ? error.message : "connection error");
+          setState({
+            phase: "error",
+            reason: "network",
+            detail: error instanceof Error ? error.message : "connection error",
+          });
         }
         return;
       }
@@ -79,13 +123,11 @@ export default function App() {
         return;
       }
       if (auth.status === 401) {
-        setStatus("error");
-        setMessage("authentication required");
+        setState({ phase: "error", reason: "auth_required" });
         return;
       }
       if (auth.status !== 204) {
-        setStatus("error");
-        setMessage("authentication check failed");
+        setState({ phase: "error", reason: "auth_check_failed" });
         return;
       }
 
@@ -100,8 +142,7 @@ export default function App() {
           return;
         }
         opened = true;
-        setStatus("connected");
-        setMessage("connected");
+        showConnected(isReconnect);
         const latestSize = latestSizeRef.current;
         if (latestSize) {
           socket.send(encodeResize(latestSize.cols, latestSize.rows));
@@ -122,8 +163,7 @@ export default function App() {
         } else if (isReconnect) {
           scheduleReconnect();
         } else {
-          setStatus("error");
-          setMessage("authentication or websocket upgrade failed");
+          setState({ phase: "error", reason: "websocket_upgrade" });
         }
       });
       socket.addEventListener("error", () => {
@@ -131,8 +171,7 @@ export default function App() {
           return;
         }
         if (!opened && !isReconnect) {
-          setStatus("error");
-          setMessage("websocket error");
+          setState({ phase: "error", reason: "websocket_error" });
         }
       });
       socket.addEventListener("message", (event) => {
@@ -146,34 +185,36 @@ export default function App() {
         if (frame.type === "output") {
           terminalRef.current?.write(frame.data);
         } else if (frame.type === "error") {
-          setStatus("error");
-          setMessage(frame.message);
+          setState({ phase: "error", reason: "server_error", detail: frame.message });
         } else {
           remoteExited = true;
-          setStatus("closed");
-          setMessage(`Remote exited with code ${frame.code}`);
+          setState({ phase: "closed", reason: "remote_exit", exitCode: frame.code });
           socket.close();
         }
       });
     }
 
     connect(false).catch((error: unknown) => {
-      setStatus("error");
-      setMessage(error instanceof Error ? error.message : "connection error");
+      setState({
+        phase: "error",
+        reason: "network",
+        detail: error instanceof Error ? error.message : "connection error",
+      });
     });
 
     return () => {
       cancelled = true;
       attempt += 1;
       clearReconnectTimer();
+      clearNoticeTimer();
       socketRef.current?.close();
       socketRef.current = null;
     };
   }, []);
 
   return (
-    <main className="terminal-shell" data-status={status}>
-      <div className="status" role="status">{message}</div>
+    <main className="terminal-shell" data-status={connectionState.phase}>
+      <ConnectionStatusBar state={connectionState} />
       <GhosttyTerminal ref={terminalRef} onData={sendInput} onResize={sendResize} />
     </main>
   );
