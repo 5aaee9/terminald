@@ -21,6 +21,14 @@ pub struct Cli {
     port: u16,
 
     #[arg(
+        long = "host",
+        value_name = "HOST",
+        default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        help = "Host address for the server to bind to"
+    )]
+    host: IpAddr,
+
+    #[arg(
         short = 'c',
         long = "credential",
         value_name = "USER:PASSWORD",
@@ -55,6 +63,14 @@ struct ServerArgs {
         help = "Port for the server to listen on"
     )]
     port: u16,
+
+    #[arg(
+        long = "host",
+        value_name = "HOST",
+        default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        help = "Host address for the server to bind to"
+    )]
+    host: IpAddr,
 
     #[arg(
         short = 'c',
@@ -101,6 +117,7 @@ impl Cli {
     pub fn into_mode(self) -> Result<CommandMode> {
         match self.command {
             Some(Subcommands::Server(args)) => Ok(CommandMode::Server(server_config(
+                args.host,
                 args.port,
                 args.credential,
                 args.command,
@@ -115,6 +132,7 @@ impl Cli {
                     bail!("command is required");
                 }
                 Ok(CommandMode::Server(server_config(
+                    self.host,
                     self.port,
                     self.credential,
                     self.server_command,
@@ -125,6 +143,7 @@ impl Cli {
 }
 
 fn server_config(
+    host: IpAddr,
     port: u16,
     credential: Option<String>,
     command: Vec<String>,
@@ -133,7 +152,7 @@ fn server_config(
         bail!("command is required");
     }
     let mut config = ServerConfig::new(port, command);
-    config.host = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
+    config.host = host;
     if let Some(credential) = parse_credential(credential)? {
         config.auth = AuthConfig::basic(credential);
     }
@@ -152,7 +171,8 @@ pub fn parse_credential(value: Option<String>) -> Result<Option<Credential>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::{CommandFactory, Parser};
+    use clap::{CommandFactory, Parser, error::ErrorKind};
+    use std::net::Ipv6Addr;
 
     #[test]
     fn parses_explicit_server() {
@@ -184,6 +204,41 @@ mod tests {
         assert_eq!(config.port, 9000);
         assert_eq!(config.host, IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         assert_eq!(config.command, vec!["bash"]);
+    }
+
+    #[test]
+    fn parses_explicit_server_host() {
+        let cli =
+            Cli::try_parse_from(["terminald", "server", "--host", "127.0.0.1", "bash"]).unwrap();
+        let CommandMode::Server(config) = cli.into_mode().unwrap() else {
+            panic!("expected server mode");
+        };
+        assert_eq!(config.host, IpAddr::V4(Ipv4Addr::LOCALHOST));
+        assert_eq!(config.port, 7681);
+        assert_eq!(config.command, vec!["bash"]);
+    }
+
+    #[test]
+    fn parses_implicit_server_ipv6_host() {
+        let cli = Cli::try_parse_from(["terminald", "--host", "::1", "bash"]).unwrap();
+        let CommandMode::Server(config) = cli.into_mode().unwrap() else {
+            panic!("expected server mode");
+        };
+        assert_eq!(config.host, IpAddr::V6(Ipv6Addr::LOCALHOST));
+        assert_eq!(config.port, 7681);
+        assert_eq!(config.command, vec!["bash"]);
+    }
+
+    #[test]
+    fn invalid_server_host_is_rejected() {
+        let explicit_error =
+            Cli::try_parse_from(["terminald", "server", "--host", "localhost", "bash"])
+                .unwrap_err();
+        assert_eq!(explicit_error.kind(), ErrorKind::ValueValidation);
+
+        let implicit_error =
+            Cli::try_parse_from(["terminald", "--host", "localhost", "bash"]).unwrap_err();
+        assert_eq!(implicit_error.kind(), ErrorKind::ValueValidation);
     }
 
     #[test]
@@ -240,6 +295,8 @@ mod tests {
         assert!(help.contains("Print the terminald version"));
         assert!(help.contains("-p, --port <PORT>"));
         assert!(help.contains("Port for the server to listen on"));
+        assert!(help.contains("--host <HOST>"));
+        assert!(help.contains("Host address for the server to bind to"));
         assert!(help.contains("-c, --credential <USER:PASSWORD>"));
         assert!(help.contains("Basic authentication credential"));
         assert!(help.contains("[SERVER_COMMAND]..."));
@@ -257,6 +314,8 @@ mod tests {
         assert!(server_help.contains("Run a terminald server"));
         assert!(server_help.contains("[COMMAND]..."));
         assert!(server_help.contains("Command to run in the shared terminal"));
+        assert!(server_help.contains("--host <HOST>"));
+        assert!(server_help.contains("Host address for the server to bind to"));
 
         let client_help = command
             .find_subcommand_mut("client")

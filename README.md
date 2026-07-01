@@ -34,6 +34,12 @@ The default command is `server`, so this is equivalent:
 terminald -p 7681 -c f56a8193:fb604749b91b0110dad4adfb bash
 ```
 
+By default the server binds to `0.0.0.0`. Use `--host` with an IP literal to bind a specific interface, for example localhost only:
+
+```bash
+terminald server --host 127.0.0.1 -p 7681 bash
+```
+
 The trailing command is required. Terminald does not fall back to `$SHELL` when no command is provided.
 
 The `-c` value is `username:password` and enables HTTP Basic authentication for the web app, static assets, `auth/check`, and WebSocket upgrade. Basic auth is plaintext without TLS; use it behind TLS termination or on trusted local networks only. Configured credentials and received `Authorization` headers are not logged or exposed through formatted auth errors.
