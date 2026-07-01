@@ -2,19 +2,14 @@ use super::*;
 
 use axum::http::HeaderValue;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use futures_util::{SinkExt, StreamExt};
 use http::header;
 use http_body_util::BodyExt;
 use tempfile::TempDir;
-use terminald_protocol::{ClientMessage, Resize, ServerMessage};
-use tokio::net::TcpListener;
-use tokio_tungstenite::{
-    connect_async,
-    tungstenite::{Message as TungsteniteMessage, client::IntoClientRequest},
-};
 use tower::ServiceExt;
 
 use crate::Credential;
+
+mod websocket_tests;
 
 fn app_with_auth(auth: AuthConfig) -> Router {
     let mut config = ServerConfig::new(7681, vec!["bash".to_string()]);
@@ -56,61 +51,6 @@ async fn get_with_auth(router: Router, path: &str) -> Response {
 async fn body_text(response: Response) -> String {
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     String::from_utf8_lossy(&bytes).into_owned()
-}
-
-async fn spawn_server(auth: AuthConfig) -> String {
-    spawn_server_with_command(
-        auth,
-        vec!["sh".into(), "-lc".into(), "printf ready; cat".into()],
-    )
-    .await
-}
-
-async fn spawn_server_with_command(auth: AuthConfig, command: Vec<String>) -> String {
-    let mut config = ServerConfig::new(0, command);
-    config.auth = auth;
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        axum::serve(listener, app(config)).await.unwrap();
-    });
-    format!("ws://{address}")
-}
-
-async fn next_output_text(
-    ws: &mut tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
-) -> String {
-    loop {
-        let Some(message) = ws.next().await else {
-            panic!("websocket closed before output");
-        };
-        let TungsteniteMessage::Binary(frame) = message.unwrap() else {
-            continue;
-        };
-        if let ServerMessage::Output(output) = ServerMessage::decode(&frame).unwrap() {
-            return String::from_utf8_lossy(&output).into_owned();
-        }
-    }
-}
-
-async fn next_exit_code(
-    ws: &mut tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
-) -> i32 {
-    loop {
-        let Some(message) = ws.next().await else {
-            panic!("websocket closed before exit frame");
-        };
-        let TungsteniteMessage::Binary(frame) = message.unwrap() else {
-            continue;
-        };
-        if let ServerMessage::Exited(code) = ServerMessage::decode(&frame).unwrap() {
-            return code;
-        }
-    }
 }
 
 #[tokio::test]
@@ -231,93 +171,4 @@ async fn serves_external_dist_before_embedded_assets() {
         body_text(get(router, "/assets/terminald.css").await).await,
         "external css"
     );
-}
-
-#[tokio::test]
-async fn websocket_bridges_binary_input_and_resize() {
-    let base = spawn_server(AuthConfig::disabled()).await;
-    let (mut ws, _) = connect_async(format!("{base}/ws")).await.unwrap();
-    assert!(next_output_text(&mut ws).await.contains("ready"));
-
-    ws.send(TungsteniteMessage::Binary(
-        ClientMessage::Input(b"hello\n".to_vec())
-            .encode()
-            .unwrap()
-            .into(),
-    ))
-    .await
-    .unwrap();
-    assert!(next_output_text(&mut ws).await.contains("hello"));
-
-    ws.send(TungsteniteMessage::Binary(
-        ClientMessage::Resize(Resize {
-            cols: 100,
-            rows: 40,
-        })
-        .encode()
-        .unwrap()
-        .into(),
-    ))
-    .await
-    .unwrap();
-}
-
-#[tokio::test]
-async fn websocket_supports_prefixed_paths_and_auth() {
-    let base = spawn_server(AuthConfig::disabled()).await;
-    let (mut ws, _) = connect_async(format!("{base}/aaa/ws")).await.unwrap();
-    assert!(next_output_text(&mut ws).await.contains("ready"));
-
-    let base = spawn_server(AuthConfig::basic(Credential::new("user:pass").unwrap())).await;
-    assert!(connect_async(format!("{base}/ws")).await.is_err());
-
-    let mut request = format!("{base}/aaa/ws").into_client_request().unwrap();
-    request
-        .headers_mut()
-        .insert(header::AUTHORIZATION, auth_header());
-    let (mut ws, _) = connect_async(request).await.unwrap();
-    assert!(next_output_text(&mut ws).await.contains("ready"));
-}
-
-#[tokio::test]
-async fn websocket_text_input_reaches_pty() {
-    let base = spawn_server(AuthConfig::disabled()).await;
-    let (mut ws, _) = connect_async(format!("{base}/ws")).await.unwrap();
-    assert!(next_output_text(&mut ws).await.contains("ready"));
-
-    ws.send(TungsteniteMessage::Text("text hello\n".into()))
-        .await
-        .unwrap();
-    assert!(next_output_text(&mut ws).await.contains("text hello"));
-}
-
-#[tokio::test]
-async fn websocket_invalid_resize_returns_error_frame() {
-    let base = spawn_server(AuthConfig::disabled()).await;
-    let (mut ws, _) = connect_async(format!("{base}/ws")).await.unwrap();
-    assert!(next_output_text(&mut ws).await.contains("ready"));
-
-    ws.send(TungsteniteMessage::Binary(vec![0, b'{'].into()))
-        .await
-        .unwrap();
-    let message = ws.next().await.unwrap().unwrap();
-    let TungsteniteMessage::Binary(frame) = message else {
-        panic!("expected binary error frame");
-    };
-    let decoded = ServerMessage::decode(&frame).unwrap();
-    assert!(
-        matches!(decoded, ServerMessage::Error(error) if error.contains("invalid resize payload"))
-    );
-}
-
-#[tokio::test]
-async fn websocket_sends_exit_frame_when_command_exits() {
-    let base = spawn_server_with_command(
-        AuthConfig::disabled(),
-        vec!["sh".into(), "-lc".into(), "exit 7".into()],
-    )
-    .await;
-    let (mut ws, _) = connect_async(format!("{base}/ws")).await.unwrap();
-
-    assert_eq!(next_exit_code(&mut ws).await, 7);
 }

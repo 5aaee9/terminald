@@ -1,3 +1,3 @@
 mod process;
 
-pub use process::{PtyCommand, PtyProcess, PtySize};
+pub use process::{PtyCommand, PtyHandle, PtyProcess, PtySize};

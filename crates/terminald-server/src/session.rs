@@ -11,7 +11,7 @@ pub async fn handle_socket(socket: WebSocket, command: Vec<String>) {
 }
 
 async fn run_socket(socket: WebSocket, command: Vec<String>) -> anyhow::Result<()> {
-    let process = PtyProcess::spawn(PtyCommand::new(command), PtySize::default()).await?;
+    let mut process = PtyProcess::spawn(PtyCommand::new(command), PtySize::default()).await?;
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = mpsc::channel::<ServerMessage>(32);
     let reader_process = process.clone_handle();
@@ -46,6 +46,19 @@ async fn run_socket(socket: WebSocket, command: Vec<String>) -> anyhow::Result<(
         let _ = tx.send(ServerMessage::Exited(code)).await;
     });
 
+    let result = drive_socket(&mut sender, &mut receiver, &mut rx, writer_process).await;
+    if let Err(error) = process.terminate().await {
+        eprintln!("{error:#}");
+    }
+    result
+}
+
+async fn drive_socket(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    receiver: &mut futures_util::stream::SplitStream<WebSocket>,
+    rx: &mut mpsc::Receiver<ServerMessage>,
+    writer_process: terminald_pty::PtyHandle,
+) -> anyhow::Result<()> {
     loop {
         tokio::select! {
             Some(message) = rx.recv() => {
@@ -77,6 +90,5 @@ async fn run_socket(socket: WebSocket, command: Vec<String>) -> anyhow::Result<(
             else => break,
         }
     }
-    drop(process);
     Ok(())
 }

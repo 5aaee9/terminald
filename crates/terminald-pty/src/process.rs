@@ -1,12 +1,17 @@
 use std::{
     fs::File,
-    io::{ErrorKind, Read, Write},
+    io::ErrorKind,
     os::{
-        fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd},
+        fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
         unix::process::CommandExt,
     },
     process::{Child, Command, ExitStatus, Stdio},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -16,7 +21,10 @@ use nix::{
     sys::signal::{Signal, kill},
     unistd::Pid,
 };
-use tokio::task;
+use tokio::{io::unix::AsyncFd, task};
+
+const PTY_TERMINATE_GRACE_PERIOD: Duration = Duration::from_millis(200);
+const PTY_TERMINATE_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PtyCommand {
@@ -48,9 +56,9 @@ pub struct PtyProcess {
 
 #[derive(Debug, Clone)]
 pub struct PtyHandle {
-    reader: Arc<Mutex<File>>,
-    writer: Arc<Mutex<File>>,
+    io: Arc<AsyncFd<File>>,
     child: Arc<Mutex<Child>>,
+    cleanup_started: Arc<AtomicBool>,
 }
 
 impl PtyProcess {
@@ -82,6 +90,9 @@ impl PtyProcess {
     }
 
     pub async fn terminate(&mut self) -> Result<()> {
+        if !self.inner.start_cleanup() {
+            return Ok(());
+        }
         let child = Arc::clone(&self.inner.child);
         task::spawn_blocking(move || {
             let mut child = child
@@ -124,41 +135,29 @@ impl PtyHandle {
     }
 
     pub async fn read(&self, buf: &mut [u8]) -> Result<usize> {
-        let len = buf.len();
-        let reader = Arc::clone(&self.reader);
-        let data = task::spawn_blocking(move || {
-            let mut data = vec![0_u8; len];
-            let mut file = reader
-                .lock()
-                .map_err(|_| anyhow!("PTY reader lock poisoned"))?;
-            let read = match file.read(&mut data) {
-                Ok(read) => read,
-                Err(error) if is_pty_eof(&error) => 0,
-                Err(error) => return Err(error).context("read PTY master"),
-            };
-            data.truncate(read);
-            Ok::<_, anyhow::Error>(data)
-        })
-        .await
-        .context("join PTY read task")??;
-
-        let read = data.len();
-        buf[..read].copy_from_slice(&data);
-        Ok(read)
+        loop {
+            let mut guard = self.io.readable().await.context("wait for PTY readable")?;
+            match guard.try_io(|inner| read_pty(inner.get_ref().as_raw_fd(), buf)) {
+                Ok(Ok(read)) => return Ok(read),
+                Ok(Err(error)) if is_pty_eof(&error) => return Ok(0),
+                Ok(Err(error)) => return Err(error).context("read PTY master"),
+                Err(_would_block) => continue,
+            }
+        }
     }
 
     pub async fn write_all(&self, data: &[u8]) -> Result<()> {
-        let data = data.to_vec();
-        let writer = Arc::clone(&self.writer);
-        task::spawn_blocking(move || {
-            let mut file = writer
-                .lock()
-                .map_err(|_| anyhow!("PTY writer lock poisoned"))?;
-            file.write_all(&data).context("write PTY master")?;
-            file.flush().context("flush PTY master")
-        })
-        .await
-        .context("join PTY write task")?
+        let mut written = 0;
+        while written < data.len() {
+            let mut guard = self.io.writable().await.context("wait for PTY writable")?;
+            match guard.try_io(|inner| write_pty(inner.get_ref().as_raw_fd(), &data[written..])) {
+                Ok(Ok(0)) => bail!("write PTY master returned zero bytes"),
+                Ok(Ok(count)) => written += count,
+                Ok(Err(error)) => return Err(error).context("write PTY master"),
+                Err(_would_block) => continue,
+            }
+        }
+        Ok(())
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
@@ -168,11 +167,7 @@ impl PtyHandle {
             ws_xpixel: 0,
             ws_ypixel: 0,
         };
-        let fd = self
-            .writer
-            .lock()
-            .map_err(|_| anyhow!("PTY resize lock poisoned"))?
-            .as_raw_fd();
+        let fd = self.io.get_ref().as_raw_fd();
         let result = unsafe { libc::ioctl(fd, libc::TIOCSWINSZ, &size) };
         if result == -1 {
             return Err(std::io::Error::last_os_error()).context("resize PTY");
@@ -181,10 +176,22 @@ impl PtyHandle {
     }
 
     fn terminate_blocking_best_effort(&self) {
-        let Ok(mut child) = self.child.lock() else {
+        if !self.start_cleanup() {
             return;
-        };
-        let _ = terminate_child_process_group_blocking(&mut child);
+        }
+        let child = Arc::clone(&self.child);
+        let _ = thread::Builder::new()
+            .name("terminald-pty-cleanup".into())
+            .spawn(move || {
+                let Ok(mut child) = child.lock() else {
+                    return;
+                };
+                let _ = terminate_child_process_group_blocking(&mut child);
+            });
+    }
+
+    fn start_cleanup(&self) -> bool {
+        !self.cleanup_started.swap(true, Ordering::AcqRel)
     }
 }
 
@@ -198,10 +205,72 @@ fn is_pty_eof(error: &std::io::Error) -> bool {
     error.kind() == ErrorKind::UnexpectedEof || error.raw_os_error() == Some(Errno::EIO as i32)
 }
 
-fn terminate_process_group(child_id: u32) -> Result<()> {
-    match kill(Pid::from_raw(-(child_id as i32)), Signal::SIGTERM) {
+fn read_pty(fd: RawFd, buf: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        let result = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
+        if result >= 0 {
+            return Ok(result as usize);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+fn write_pty(fd: RawFd, buf: &[u8]) -> std::io::Result<usize> {
+    loop {
+        let result = unsafe { libc::write(fd, buf.as_ptr().cast(), buf.len()) };
+        if result >= 0 {
+            return Ok(result as usize);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+fn set_nonblocking(fd: RawFd) -> Result<()> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags == -1 {
+        return Err(std::io::Error::last_os_error()).context("get PTY master flags");
+    }
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } == -1 {
+        return Err(std::io::Error::last_os_error()).context("set PTY master nonblocking");
+    }
+    Ok(())
+}
+
+fn signal_process_group(child_id: u32, signal: Signal, action: &str) -> Result<()> {
+    match kill(Pid::from_raw(-(child_id as i32)), signal) {
         Ok(()) | Err(Errno::ESRCH) => Ok(()),
-        Err(error) => Err(error).with_context(|| format!("terminate PTY process group {child_id}")),
+        Err(error) => Err(error).with_context(|| format!("{action} PTY process group {child_id}")),
+    }
+}
+
+fn terminate_process_group(child_id: u32) -> Result<()> {
+    signal_process_group(child_id, Signal::SIGTERM, "terminate")
+}
+
+fn kill_process_group(child_id: u32) -> Result<()> {
+    signal_process_group(child_id, Signal::SIGKILL, "kill")
+}
+
+fn wait_for_child_exit_blocking(child: &mut Child, timeout: Duration) -> Result<bool> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if child
+            .try_wait()
+            .context("check PTY child status after terminate")?
+            .is_some()
+        {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        thread::sleep(PTY_TERMINATE_POLL_INTERVAL);
     }
 }
 
@@ -215,6 +284,11 @@ fn terminate_child_process_group_blocking(child: &mut Child) -> Result<()> {
     }
     let child_id = child.id();
     terminate_process_group(child_id)?;
+    let child_exited = wait_for_child_exit_blocking(child, PTY_TERMINATE_GRACE_PERIOD)?;
+    kill_process_group(child_id)?;
+    if child_exited {
+        return Ok(());
+    }
     child.wait().context("wait for PTY child after terminate")?;
     Ok(())
 }
@@ -228,11 +302,8 @@ fn spawn_blocking(argv: Vec<String>, size: PtySize) -> Result<PtyProcess> {
     };
     let pty = nix::pty::openpty(Some(&winsize), None).context("open PTY")?;
     let master_file = unsafe { File::from_raw_fd(pty.master.into_raw_fd()) };
-    let writer_file = master_file
-        .try_clone()
-        .context("clone PTY master for writing")?;
-    let reader = Arc::new(Mutex::new(master_file));
-    let writer = Arc::new(Mutex::new(writer_file));
+    set_nonblocking(master_file.as_raw_fd())?;
+    let io = Arc::new(AsyncFd::new(master_file).context("register PTY master")?);
     let slave = pty.slave;
 
     let mut command = Command::new(&argv[0]);
@@ -251,9 +322,9 @@ fn spawn_blocking(argv: Vec<String>, size: PtySize) -> Result<PtyProcess> {
         .with_context(|| format!("spawn PTY command {}", argv[0]))?;
     Ok(PtyProcess {
         inner: PtyHandle {
-            reader,
-            writer,
+            io,
             child: Arc::new(Mutex::new(child)),
+            cleanup_started: Arc::new(AtomicBool::new(false)),
         },
     })
 }
@@ -277,87 +348,4 @@ fn child_setup(slave: &OwnedFd) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::Path;
-    use tokio::time::{Duration, timeout};
-
-    async fn wait_for_file(path: &Path) -> bool {
-        for _ in 0..50 {
-            if tokio::fs::try_exists(path).await.unwrap() {
-                return true;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        false
-    }
-
-    async fn wait_until_contains(path: &Path, expected: &str) -> bool {
-        for _ in 0..50 {
-            if let Ok(contents) = tokio::fs::read_to_string(path).await
-                && contents.contains(expected)
-            {
-                return true;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        false
-    }
-
-    #[tokio::test]
-    async fn spawns_reads_writes_and_resizes() {
-        let mut process = PtyProcess::spawn(
-            PtyCommand::new(vec!["sh".into(), "-lc".into(), "printf ready; cat".into()]),
-            PtySize::default(),
-        )
-        .await
-        .unwrap();
-
-        let mut buf = [0_u8; 1024];
-        let read = timeout(Duration::from_secs(3), process.read(&mut buf))
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(String::from_utf8_lossy(&buf[..read]).contains("ready"));
-
-        process.write_all(b"hello\n").await.unwrap();
-        let read = timeout(Duration::from_secs(3), process.read(&mut buf))
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(String::from_utf8_lossy(&buf[..read]).contains("hello"));
-
-        process.resize(100, 40).unwrap();
-        process.terminate().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn drop_terminates_process_group_children() {
-        let dir = tempfile::tempdir().unwrap();
-        let ready = dir.path().join("ready");
-        let trapped = dir.path().join("trapped");
-        let script = format!(
-            "sh -c 'trap \"echo child-term > {trapped}; exit 0\" TERM; trap \"\" HUP; touch {ready}; while true; do sleep 1; done' & wait",
-            ready = ready.display(),
-            trapped = trapped.display(),
-        );
-
-        let process = PtyProcess::spawn(
-            PtyCommand::new(vec!["sh".into(), "-lc".into(), script]),
-            PtySize::default(),
-        )
-        .await
-        .unwrap();
-
-        assert!(
-            wait_for_file(&ready).await,
-            "background child process did not become ready"
-        );
-        drop(process);
-
-        assert!(
-            wait_until_contains(&trapped, "child-term").await,
-            "background child process did not receive SIGTERM from PTY Drop cleanup"
-        );
-    }
-}
+mod tests;
