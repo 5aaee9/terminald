@@ -39,7 +39,7 @@ async fn dispatch(State(state): State<AppState>, request: Request<Body>) -> Resp
         return auth_check(&state.auth, &request);
     }
     if path.ends_with("/ws") || path == "/ws" {
-        if state.auth.authorize_request(&request).is_err() {
+        if state.auth.authorize_request(&request).is_err() || !same_origin(&request) {
             return AuthRejection.into_response();
         }
         let (mut parts, body) = request.into_parts();
@@ -69,6 +69,27 @@ async fn dispatch(State(state): State<AppState>, request: Request<Body>) -> Resp
     }
 }
 
+// Non-browser clients may omit Origin. Browsers must match the public Host;
+// reverse proxies must preserve that Host when forwarding a mounted terminal.
+fn same_origin(request: &Request<Body>) -> bool {
+    let Some(origin) = request.headers().get("origin") else {
+        return true;
+    };
+    let Some(host) = request.headers().get("host").and_then(|h| h.to_str().ok()) else {
+        return false;
+    };
+    origin
+        .to_str()
+        .ok()
+        .and_then(|s| s.parse::<axum::http::Uri>().ok())
+        .is_some_and(|uri| {
+            matches!(uri.scheme_str(), Some("http" | "https"))
+                && uri
+                    .authority()
+                    .is_some_and(|a| a.as_str().eq_ignore_ascii_case(host))
+        })
+}
+
 fn auth_check(auth: &AuthConfig, request: &Request<Body>) -> Response {
     match auth.authorize_request(request) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -89,6 +110,28 @@ fn path_final_segment_has_extension(path: &str) -> bool {
     path.rsplit('/')
         .next()
         .is_some_and(|segment| segment.contains('.'))
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::*;
+
+    #[test]
+    fn browser_origin_must_match_host() {
+        for (origin, allowed) in [
+            ("https://console.example", true),
+            ("https://evil.example", false),
+            ("null", false),
+        ] {
+            let request = Request::builder()
+                .header("host", "console.example")
+                .header("origin", origin)
+                .body(Body::empty())
+                .unwrap();
+            assert_eq!(same_origin(&request), allowed);
+        }
+        assert!(same_origin(&Request::new(Body::empty())));
+    }
 }
 
 #[cfg(test)]

@@ -44,6 +44,18 @@ The trailing command is required. Terminald does not fall back to `$SHELL` when 
 
 The `-c` value is `username:password` and enables HTTP Basic authentication for the web app, static assets, `auth/check`, and WebSocket upgrade. Basic auth is plaintext without TLS; use it behind TLS termination or on trusted local networks only. Configured credentials and received `Authorization` headers are not logged or exposed through formatted auth errors.
 
+For runtime secrets, use `--credential-file /run/credentials/terminal` instead of
+placing `user:password` in process arguments. A single trailing newline is accepted;
+unreadable or malformed files fail closed. `--credential-file` conflicts with `-c`.
+
+For an isolated network namespace, `--unix-socket /run/terminal/http.sock`
+serves HTTP/WebSocket without any TCP listener (conflicts with `--host`/`--port`).
+The parent directory and socket permissions are the operator’s responsibility;
+existing socket paths are never removed automatically. A host-side loopback proxy
+can forward to this socket while the PTY remains in the isolated namespace.
+Browser WebSocket requests must have an Origin matching the public Host; proxies
+must preserve Host. Non-browser clients may omit Origin.
+
 ## Client
 
 Connect from a local terminal to a Terminald server:
