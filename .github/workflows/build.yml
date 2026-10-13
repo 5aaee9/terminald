@@ -80,7 +80,18 @@ jobs:
           tool: cargo-zigbuild
           fallback: none
 
-      - run: cargo zigbuild --release --target ${{ matrix.target }} --bin terminald
+      - if: matrix.arch == 'amd64'
+        run: cargo zigbuild --release --locked --target ${{ matrix.target }} --bin terminald
+
+      # Zig's compiler driver rejects rustc's --fix-cortex-a53-843419 flag.
+      # Keep Zig for C dependencies, but use Rust's bundled LLD for the final
+      # ARM64 link so the Cortex-A53 erratum workaround is not discarded.
+      - if: matrix.arch == 'arm64'
+        env:
+          CC_aarch64_unknown_linux_musl: zig cc -target aarch64-linux-musl -fno-sanitize=all
+          AR_aarch64_unknown_linux_musl: zig ar
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+        run: cargo build --release --locked --target ${{ matrix.target }} --bin terminald
 
       - run: |
           mkdir -p dist
