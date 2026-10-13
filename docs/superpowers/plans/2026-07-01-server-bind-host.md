@@ -35,9 +35,11 @@
 ## Task 1: Add Server Bind Host CLI Argument
 
 **Files:**
+
 - Modify: `crates/terminald-cli/src/args.rs`
 
 **Interfaces:**
+
 - Consumes: existing `ServerConfig::new(port: u16, command: Vec<String>) -> ServerConfig` with public `host: IpAddr` field.
 - Produces: CLI parser behavior where explicit and implicit server modes set `ServerConfig.host` from `--host <HOST>` or default to `IpAddr::V4(Ipv4Addr::UNSPECIFIED)`.
 

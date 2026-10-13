@@ -23,10 +23,12 @@
 ### Task 1: Split Server Route Tests
 
 **Files:**
+
 - Modify: `crates/terminald-server/src/routes.rs`
 - Create: `crates/terminald-server/src/routes/tests.rs`
 
 **Interfaces:**
+
 - Consumes: Existing `app`, `auth_check`, `is_extensionless_without_trailing_slash`, and `AppState` items in `routes.rs`.
 - Produces: A normal test submodule declared as `#[cfg(test)] mod tests;`; no public API changes.
 
@@ -88,10 +90,12 @@ Expected: `crates/terminald-server/src/routes.rs`, `crates/terminald-server/src/
 ### Task 2: Add A Drop-Path PTY Process-Group Regression Test
 
 **Files:**
+
 - Modify: `crates/terminald-pty/Cargo.toml`
 - Modify: `crates/terminald-pty/src/process.rs`
 
 **Interfaces:**
+
 - Consumes: Existing `PtyProcess::spawn`, `PtyCommand`, `PtySize`, async read/write helpers, and workspace `tempfile` dependency.
 - Produces: A `tempfile.workspace = true` dev-dependency and a new test function `drop_terminates_process_group_children` that proves Drop signals a background child process started by the PTY command.
 
@@ -180,9 +184,11 @@ Expected before implementation: FAIL or timeout because the current Drop impleme
 ### Task 3: Implement Shared PTY Process-Group Cleanup
 
 **Files:**
+
 - Modify: `crates/terminald-pty/src/process.rs`
 
 **Interfaces:**
+
 - Consumes: Existing `PtyProcess`, `PtyHandle`, `Child`, `Pid`, `Signal`, `kill`, `Arc<Mutex<Child>>`, and `tokio::task` imports.
 - Produces: Private shared cleanup helpers used by `PtyProcess::terminate()` and `Drop`, preserving existing public method signatures and avoiding any new public `PtyHandle` API.
 
@@ -283,12 +289,14 @@ Expected: PASS.
 ### Task 4: Full Verification And Cleanup
 
 **Files:**
+
 - Inspect: `git status --short`
 - Inspect: `git diff --stat`
 - Inspect: `docs/superpowers/specs/2026-06-29-structural-reliability-optimizations-design.md`
 - Inspect: `docs/superpowers/plans/2026-06-29-structural-reliability-optimizations.md`
 
 **Interfaces:**
+
 - Consumes: Completed Tasks 1-3.
 - Produces: Verification evidence for final implementation review and commit readiness.
 
