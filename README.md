@@ -44,17 +44,52 @@ The trailing command is required. Terminald does not fall back to `$SHELL` when 
 
 The `-c` value is `username:password` and enables HTTP Basic authentication for the web app, static assets, `auth/check`, and WebSocket upgrade. Basic auth is plaintext without TLS; use it behind TLS termination or on trusted local networks only. Configured credentials and received `Authorization` headers are not logged or exposed through formatted auth errors.
 
-For runtime secrets, use `--credential-file /run/credentials/terminal` instead of
-placing `user:password` in process arguments. A single trailing newline is accepted;
-unreadable or malformed files fail closed. `--credential-file` conflicts with `-c`.
+## Credential files
 
-For an isolated network namespace, `--unix-socket /run/terminal/http.sock`
-serves HTTP/WebSocket without any TCP listener (conflicts with `--host`/`--port`).
-The parent directory and socket permissions are the operator’s responsibility;
-existing socket paths are never removed automatically. A host-side loopback proxy
-can forward to this socket while the PTY remains in the isolated namespace.
-Browser WebSocket requests must have an Origin matching the public Host; proxies
-must preserve Host. Non-browser clients may omit Origin.
+Both server modes and the client accept `--credential-file PATH` instead of `-c`:
+
+```bash
+terminald server --host 127.0.0.1 --credential-file /run/secrets/terminald-auth bash
+terminald --credential-file /run/secrets/terminald-auth bash
+terminald client --connect https://console.example/terminal/ --credential-file /run/secrets/terminald-auth
+```
+
+The file contains one UTF-8 `username:password` line. A single trailing LF or CRLF
+is accepted; other whitespace and additional colons in the password are preserved.
+Empty, malformed, multiline, NUL-containing, non-UTF-8, and unreadable files fail
+closed. `--credential-file` conflicts with `-c` in every mode. The file is read once
+at startup; changing it requires restarting the process.
+
+This keeps the credential value out of process arguments. File ownership, access
+permissions, secure delivery, and removal are the operator's responsibility.
+Terminald does not create, chmod, delete, or log the file contents. The option works
+with ordinary files, container secrets, or service-manager credential files; for
+example, a systemd unit can use `LoadCredential=auth:/path/to/auth` and pass
+`--credential-file %d/auth` in `ExecStart`.
+
+## Unix socket listener
+
+On Unix, `--unix-socket PATH` serves the same authenticated HTTP and WebSocket
+endpoints over a filesystem socket instead of TCP:
+
+```bash
+# Create the parent directory with ownership appropriate for the service first.
+umask 077
+terminald server --unix-socket /run/terminald/http.sock --credential-file /run/secrets/terminald-auth bash
+```
+
+This is useful behind a local reverse proxy or across network namespaces using a
+shared filesystem path. It conflicts with explicit `--host` and `--port` options;
+the default TCP address and port do not create an additional listener. Relative
+socket paths are resolved from the working directory.
+
+Terminald neither creates parent directories nor unlinks existing paths, including
+stale sockets and symlinks. Socket permissions follow the process umask. The
+operator must restrict access to the parent directory/socket, grant the reverse
+proxy access as needed, and clean up the socket after stopping the service. Basic
+authentication is optional just as with TCP; a Unix socket does not imply that
+connecting processes are trusted. The terminal client still connects via HTTP(S)
+or WS(S), normally through the reverse proxy; `--unix-socket` is a server option.
 
 ## Client
 
@@ -76,6 +111,13 @@ https://site.com/example/bbb/
 ```
 
 Use a trailing slash for mounted app paths. The server redirects extensionless non-WebSocket GET paths such as `/aaa`, `/example/bbb`, and `/custom` to the same path with a trailing slash.
+
+Terminald does not compare browser `Origin` with the upstream `Host`, so a proxy
+may rewrite Host without breaking authenticated WebSocket upgrades. Basic auth,
+when configured, is still required for HTTP and WebSocket requests. Deployments
+that need browser-origin restrictions must enforce their allowed origins at the
+trusted reverse proxy. Do not expose an unauthenticated terminal to untrusted
+networks or assume Basic auth alone prevents cross-origin browser requests.
 
 The browser reconnects automatically after an established WebSocket disconnects. A reconnect starts a fresh PTY session; Terminald does not replay prior terminal output or resume the old process.
 

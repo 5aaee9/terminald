@@ -21,3 +21,6 @@ rustls = { workspace = true, features = ["ring"] }
 tokio.workspace = true
 tokio-tungstenite = { workspace = true, features = ["rustls-tls-native-roots"] }
 url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

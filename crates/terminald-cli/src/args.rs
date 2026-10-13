@@ -2,9 +2,12 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand};
-use terminald_server::{AuthConfig, Credential, ServerConfig};
+use terminald_server::{AuthConfig, ServerConfig};
 
 use crate::client::ClientConfig;
+use credentials::CredentialArgs;
+
+mod credentials;
 
 #[derive(Debug, Parser)]
 #[command(name = "terminald", about = "Share a terminal over the web")]
@@ -20,26 +23,13 @@ pub struct Cli {
     )]
     port: u16,
 
-    #[arg(
-        long = "host",
-        value_name = "HOST",
-        default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-        help = "Host address for the server to bind to"
-    )]
+    #[arg(long, value_name = "HOST", default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED), help = "Host address for the server to bind to")]
     host: IpAddr,
 
-    #[arg(
-        short = 'c',
-        long = "credential",
-        value_name = "USER:PASSWORD",
-        help = "Basic authentication credential"
-    )]
-    credential: Option<String>,
+    #[command(flatten)]
+    auth: CredentialArgs,
 
-    #[arg(long, conflicts_with = "credential")]
-    credential_file: Option<std::path::PathBuf>,
-
-    #[arg(long, conflicts_with_all = ["host", "port"])]
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["host", "port"], help = "Listen on a Unix socket instead of TCP")]
     unix_socket: Option<std::path::PathBuf>,
 
     #[arg(
@@ -70,26 +60,13 @@ struct ServerArgs {
     )]
     port: u16,
 
-    #[arg(
-        long = "host",
-        value_name = "HOST",
-        default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-        help = "Host address for the server to bind to"
-    )]
+    #[arg(long, value_name = "HOST", default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED), help = "Host address for the server to bind to")]
     host: IpAddr,
 
-    #[arg(
-        short = 'c',
-        long = "credential",
-        value_name = "USER:PASSWORD",
-        help = "Basic authentication credential"
-    )]
-    credential: Option<String>,
+    #[command(flatten)]
+    auth: CredentialArgs,
 
-    #[arg(long, conflicts_with = "credential")]
-    credential_file: Option<std::path::PathBuf>,
-
-    #[arg(long, conflicts_with_all = ["host", "port"])]
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["host", "port"], help = "Listen on a Unix socket instead of TCP")]
     unix_socket: Option<std::path::PathBuf>,
 
     #[arg(
@@ -109,13 +86,8 @@ struct ClientArgs {
     )]
     connect: String,
 
-    #[arg(
-        short = 'c',
-        long = "credential",
-        value_name = "USER:PASSWORD",
-        help = "Basic authentication credential"
-    )]
-    credential: Option<String>,
+    #[command(flatten)]
+    auth: CredentialArgs,
 }
 
 #[derive(Debug)]
@@ -131,29 +103,22 @@ impl Cli {
             Some(Subcommands::Server(args)) => Ok(CommandMode::Server(server_config(
                 args.host,
                 args.port,
-                args.credential,
-                args.credential_file,
+                args.auth,
                 args.unix_socket,
                 args.command,
             )?)),
             Some(Subcommands::Client(args)) => Ok(CommandMode::Client(ClientConfig {
                 connect: args.connect,
-                credential: parse_credential(args.credential)?,
+                credential: args.auth.resolve()?,
             })),
             Some(Subcommands::Version) => Ok(CommandMode::Version),
-            None => {
-                if self.server_command.is_empty() {
-                    bail!("command is required");
-                }
-                Ok(CommandMode::Server(server_config(
-                    self.host,
-                    self.port,
-                    self.credential,
-                    self.credential_file,
-                    self.unix_socket,
-                    self.server_command,
-                )?))
-            }
+            None => Ok(CommandMode::Server(server_config(
+                self.host,
+                self.port,
+                self.auth,
+                self.unix_socket,
+                self.server_command,
+            )?)),
         }
     }
 }
@@ -161,8 +126,7 @@ impl Cli {
 fn server_config(
     host: IpAddr,
     port: u16,
-    credential: Option<String>,
-    credential_file: Option<std::path::PathBuf>,
+    auth: CredentialArgs,
     unix_socket: Option<std::path::PathBuf>,
     command: Vec<String>,
 ) -> Result<ServerConfig> {
@@ -172,29 +136,13 @@ fn server_config(
     let mut config = ServerConfig::new(port, command);
     config.host = host;
     config.unix_socket = unix_socket;
-    let credential = match credential_file {
-        Some(path) => {
-            use anyhow::Context;
-            let value = std::fs::read_to_string(&path)
-                .with_context(|| format!("read credential file {}", path.display()))?;
-            Some(value.trim_end_matches(['\r', '\n']).to_owned())
-        }
-        None => credential,
-    };
-    if let Some(credential) = parse_credential(credential)? {
+    if let Some(credential) = auth.resolve()? {
         config.auth = AuthConfig::basic(credential);
     }
     Ok(config)
 }
 
-pub fn parse_credential(value: Option<String>) -> Result<Option<Credential>> {
-    value
-        .map(|value| {
-            Credential::new(&value)
-                .ok_or_else(|| anyhow::anyhow!("credential must be user:password"))
-        })
-        .transpose()
-}
-
+#[cfg(test)]
+mod credential_tests;
 #[cfg(test)]
 mod tests;

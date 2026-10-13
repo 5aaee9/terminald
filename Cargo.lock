@@ -1362,6 +1362,7 @@ dependencies = [
  "futures-util",
  "http",
  "rustls",
+ "tempfile",
  "terminald-protocol",
  "terminald-server",
  "tokio",
