@@ -147,6 +147,53 @@ async fn websocket_supports_prefixed_paths_and_auth() {
 }
 
 #[tokio::test]
+async fn websocket_auth_works_when_proxy_rewrites_host() {
+    let base = spawn_server(AuthConfig::basic(Credential::new("user:pass").unwrap())).await;
+    for origin in [None, Some("https://console.example"), Some("null")] {
+        for credential in [None, Some("wrong:password"), Some("user:pass")] {
+            let mut request = format!("{base}/mounted/ws").into_client_request().unwrap();
+            request.headers_mut().insert(
+                header::HOST,
+                HeaderValue::from_static("upstream.internal:7681"),
+            );
+            if let Some(origin) = origin {
+                request
+                    .headers_mut()
+                    .insert(header::ORIGIN, HeaderValue::from_str(origin).unwrap());
+            }
+            if let Some(credential) = credential {
+                request.headers_mut().insert(
+                    header::AUTHORIZATION,
+                    HeaderValue::from_str(&format!("Basic {}", STANDARD.encode(credential)))
+                        .unwrap(),
+                );
+            }
+            let result = timeout(Duration::from_secs(5), connect_async(request))
+                .await
+                .unwrap();
+            if credential == Some("user:pass") {
+                let (mut ws, response) =
+                    result.expect("valid auth must not depend on proxy Host/Origin");
+                assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+                assert!(
+                    timeout(Duration::from_secs(5), next_output_text(&mut ws))
+                        .await
+                        .unwrap()
+                        .contains("ready")
+                );
+                ws.close(None).await.unwrap();
+            } else {
+                let tokio_tungstenite::tungstenite::Error::Http(response) = result.unwrap_err()
+                else {
+                    panic!("expected authentication rejection");
+                };
+                assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn websocket_text_input_reaches_pty() {
     let base = spawn_server(AuthConfig::disabled()).await;
     let (mut ws, _) = connect_async(format!("{base}/ws")).await.unwrap();
